@@ -1,3 +1,4 @@
+import { GhostLoader } from "../components/ghost-loader.tsx";
 import { describePortFrees, type PortFreeOutcome } from "../../src/application/free-ports.ts";
 import { busyPortHolders, FREE_ALL_PORT_MINIMUM } from "../../src/domain/doctor/report.ts";
 import type { PortHolder } from "../../src/domain/net/ports.ts";
@@ -13,8 +14,6 @@ import { Button } from "../components/ui/button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
 import { ArrowClockwiseIcon } from "../icons.ts";
 import type { DoctorCheck, DoctorReport } from "../types.ts";
-
-const SKELETON_ROWS = ["46%", "62%", "38%", "54%", "44%", "58%"] as const;
 
 export function DoctorPage() {
   const [report, setReport] = useState<DoctorReport | undefined>(undefined);
@@ -107,9 +106,6 @@ export function DoctorPage() {
             </p>
           ) : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          {loading && report ? <p className="text-[13px] text-muted-foreground">Refreshing diagnostics…</p> : null}
-          {loading && !report ? <DoctorLoading /> : null}
-          {report && report.checks.length === 0 && !loading ? <Empty>No checks reported.</Empty> : null}
           <div className="flex flex-wrap justify-between gap-3">
             <ChoiceGroup
               label="Diagnostic severity"
@@ -127,6 +123,8 @@ export function DoctorPage() {
               className="w-full sm:w-72"
             />
           </div>
+          {loading ? <DoctorLoading refreshing={Boolean(report)} /> : null}
+          {report && report.checks.length === 0 && !loading ? <Empty>No checks reported.</Empty> : null}
           {report && report.checks.length > 0 && checks.length === 0 ? <Empty>No checks match your filters.</Empty> : null}
           <div className={`flex flex-col gap-2 ${loading && report ? "opacity-60" : ""}`}>
             {checks.map((check, index) => (
@@ -139,19 +137,12 @@ export function DoctorPage() {
   );
 }
 
-function DoctorLoading() {
+function DoctorLoading({ refreshing }: { refreshing: boolean }) {
   return (
-    <div className="flex flex-col gap-2" role="status" aria-live="polite" aria-busy="true">
-      <p className="text-[13px] text-muted-foreground">Running diagnostics…</p>
-      {SKELETON_ROWS.map((width) => (
-        <div key={width} className="doctor-skeleton rounded-lg border border-border/60 bg-muted/20 px-4 py-4">
-          <div className="flex items-center gap-2">
-            <span className="h-5 w-12 rounded-md bg-muted" />
-            <span className="h-4 rounded bg-muted" style={{ width }} />
-          </div>
-          <span className="mt-3 block h-3 w-2/3 rounded bg-muted/80" />
-        </div>
-      ))}
+    <div className="doctor-loading" role="status" aria-live="polite" aria-busy="true">
+      <GhostLoader />
+      <p className="text-sm font-medium">devctl doctor</p>
+      <p className="text-[13px] text-muted-foreground">{refreshing ? "Refreshing diagnostics…" : "Running diagnostics…"}</p>
     </div>
   );
 }

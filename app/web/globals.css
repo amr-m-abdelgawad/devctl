@@ -161,21 +161,35 @@
   }
 }
 
-/* Topology edges: a slow dash along healthy depends-on links. */
-@keyframes doctor-pulse {
-  50% {
-    opacity: 0.45;
-  }
+/* Pixel ghost inspired by BlackisPlay: https://uiverse.io/BlackisPlay/sweet-frog-67 */
+.doctor-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem 1rem;
 }
-.doctor-skeleton {
-  animation: doctor-pulse 1.4s ease-in-out infinite;
+.ghost-loader { overflow: visible; }
+.ghost-loader-body { animation: ghost-loader-bob 0.5s steps(1, end) infinite; }
+.ghost-loader-feet-a { animation: ghost-loader-feet 0.5s steps(1, end) infinite; }
+.ghost-loader-feet-b { animation: ghost-loader-feet 0.5s steps(1, end) infinite reverse; }
+.ghost-loader-pupils { animation: ghost-loader-look 3s steps(1, end) infinite; }
+.ghost-loader-shadow {
+  fill: var(--foreground);
+  opacity: 0.15;
+  filter: blur(0.4px);
+  animation: ghost-loader-shadow 0.5s steps(1, end) infinite;
 }
+@keyframes ghost-loader-bob { 50% { transform: translateY(-1px); } }
+@keyframes ghost-loader-feet { 50% { opacity: 0; } }
+@keyframes ghost-loader-look { 50% { transform: translateX(1px); } }
+@keyframes ghost-loader-shadow { 50% { opacity: 0.07; } }
 @media (prefers-reduced-motion: reduce) {
-  .doctor-skeleton {
-    animation: none;
-  }
+  .ghost-loader * { animation: none; }
+  .ghost-loader-feet-b { opacity: 0; }
 }
 
+/* Topology edges: a slow dash along healthy depends-on links. */
 @keyframes topology-dash {
   to {
     stroke-dashoffset: -28;

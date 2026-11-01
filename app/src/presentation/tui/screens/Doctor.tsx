@@ -1,6 +1,4 @@
-import spinners from "cli-spinners";
-import { useAnimationTick } from "@opentui/react";
-import { useCallback, useState } from "react";
+import { GhostLoader } from "../components/GhostLoader.tsx";
 import { busyPortHolders, FREE_ALL_PORT_MINIMUM } from "../../../domain/doctor/report.ts";
 import { type Check,type DoctorProgress,type Report } from "../../../domain/doctor/types.ts";
 import type { PortHolder } from "../../../domain/net/ports.ts";
@@ -10,10 +8,6 @@ import { ScreenFrame,scrollboxStyle,useScrollSelectedIntoView } from "../layout.
 import { stateColor,stateGlyph,type Palette } from "../themes.ts";
 
 const ROW_PREFIX = "doctor-row";
-// The fixed-width frames keep the centered loading heading stable in every
-// terminal, without depending on emoji font support.
-const DOCTOR_SPINNER = spinners.bouncingBall;
-const DOCTOR_SPINNER_FPS = 1000 / DOCTOR_SPINNER.interval;
 
 export function DoctorScreen(props: {
   palette: Palette;
@@ -104,43 +98,68 @@ export function DoctorScreen(props: {
 }
 
 function DoctorLoading({ palette, progress }: { palette: Palette; progress: DoctorProgress }) {
-  const [frame, setFrame] = useState(0);
-  const advance = useCallback(() => {
-    setFrame((value) => (value + 1) % DOCTOR_SPINNER.frames.length);
-  }, []);
-  useAnimationTick(DOCTOR_SPINNER_FPS, advance);
+  const warnings = progress.checks.filter((check) => check.severity === "warn").length;
+  const errors = progress.checks.filter((check) => check.severity === "error").length;
   return (
     <box flexGrow={1} alignItems="center" justifyContent="center" overflow="hidden">
       <box
-        width="80%"
-        maxWidth={52}
-        height={10}
+        width="90%"
+        maxWidth={66}
+        height={18}
+        maxHeight="100%"
         flexShrink={1}
         border
         borderStyle="rounded"
         borderColor={palette.borderActive}
+        title=" environment diagnostics "
+        titleColor={palette.primary}
         backgroundColor={palette.panel}
+        paddingLeft={2}
+        paddingRight={2}
         flexDirection="column"
-        alignItems="center"
-        justifyContent="center"
         overflow="hidden"
       >
-        <text wrapMode="none">
-          <span fg={palette.primary}>{`${DOCTOR_SPINNER.frames[frame]}  `}</span>
-          <span fg={palette.text}>devctl doctor</span>
+        <box height={9} minHeight={3} flexShrink={1} flexDirection="row" alignItems="center" overflow="hidden">
+          <box width={18} flexShrink={0} alignItems="center" justifyContent="center" overflow="hidden">
+            <GhostLoader palette={palette} />
+          </box>
+          <box flexGrow={1} minWidth={0} flexDirection="column" justifyContent="center" overflow="hidden">
+            <text height={1} flexShrink={0} fg={palette.text} wrapMode="none">devctl doctor</text>
+            <text height={1} flexShrink={0} fg={palette.muted} wrapMode="none">Scanning your environment</text>
+            <box height={1} flexShrink={0} />
+            <text height={1} flexShrink={0} fg={palette.primary} wrapMode="none">CHECKING</text>
+            <text height={2} flexShrink={0} fg={palette.text} wrapMode="word">{progress.active}</text>
+          </box>
+        </box>
+        <box height={1} flexShrink={0} />
+        <text height={1} flexShrink={0} wrapMode="none">
+          <span fg={palette.text}>{`${progress.checks.length} completed`}</span>
+          <span fg={palette.muted}>{"  ·  "}</span>
+          <span fg={warnings ? palette.warning : palette.muted}>{`${warnings} warn`}</span>
+          <span fg={palette.muted}>{"  ·  "}</span>
+          <span fg={errors ? palette.error : palette.muted}>{`${errors} error`}</span>
         </text>
         <box height={1} flexShrink={0} />
-        <text fg={palette.text} wrapMode="none">{`Checking  ${progress.active}`}</text>
-        <box height={1} flexShrink={0} />
-        {progress.checks.slice(-4).map((check, index) => (
-          <text key={`${check.name}-${index}`} wrapMode="none">
-            <span fg={stateColor(palette, check.severity === "error" ? "ERROR" : check.severity === "warn" ? "WARN" : "OK")}>
-              {`${stateGlyph(check.severity === "error" ? "ERROR" : check.severity === "warn" ? "WARN" : "OK")} `}
-            </span>
-            <span fg={palette.muted}>{check.name}</span>
-          </text>
-        ))}
-        {progress.checks.length === 0 ? <text fg={palette.muted}>Waiting for the first result…</text> : null}
+        <box
+          flexGrow={1}
+          minHeight={2}
+          border={["top"]}
+          borderColor={palette.border}
+          title=" latest checks "
+          titleColor={palette.muted}
+          flexDirection="column"
+          overflow="hidden"
+        >
+          {progress.checks.slice(-3).map((check, index) => (
+            <text key={`${check.name}-${index}`} height={1} flexShrink={0} wrapMode="none">
+              <span fg={stateColor(palette, check.severity === "error" ? "ERROR" : check.severity === "warn" ? "WARN" : "OK")}>
+                {`${stateGlyph(check.severity === "error" ? "ERROR" : check.severity === "warn" ? "WARN" : "OK")} `}
+              </span>
+              <span fg={palette.muted}>{check.name}</span>
+            </text>
+          ))}
+          {progress.checks.length === 0 ? <text height={1} flexShrink={0} fg={palette.muted}>Waiting for the first result…</text> : null}
+        </box>
       </box>
     </box>
   );
