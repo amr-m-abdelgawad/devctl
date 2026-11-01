@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { fetchBootstrapLogs, fetchUpdate } from "../api.ts";
 import { uptimeLabel } from "../format.ts";
 import { CpuIcon, GaugeIcon, MemoryIcon, ScrollIcon, StackIcon, TimerIcon } from "../icons.ts";
-import { hrefFor } from "../hash.ts";
 import { useOperatorAction } from "../operator.ts";
-import type { ServiceRow, StatusSummary, TaskResult, UpdateCheckPayload } from "../types.ts";
+import type { RunControl } from "../control.ts";
+import type { ConfigService, ServiceRow, StatusSummary, TaskResult, UpdateCheckPayload } from "../types.ts";
+import { ServiceDetail } from "../components/service-detail.tsx";
 import { ChoiceGroup, SearchInput } from "../components/filters.tsx";
 import { ConfirmAction } from "../components/confirm-action.tsx";
 import { Kpi, Empty } from "../components/primitives.tsx";
@@ -16,7 +17,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 function bytes(value?: number): string {
   return value === undefined ? "—" : `${(value / 1_048_576).toFixed(1)} MiB`;
 }
-export function SystemPage(props: { status?: StatusSummary; services: ServiceRow[] }) {
+export function SystemPage(props: {
+  status?: StatusSummary;
+  services: ServiceRow[];
+  configServices: ConfigService[];
+  busy: boolean;
+  onControl: RunControl;
+}) {
   const [tab, setTab] = useState("resources");
   const [search, setSearch] = useState("");
   const [logs, setLogs] = useState("");
@@ -24,6 +31,7 @@ export function SystemPage(props: { status?: StatusSummary; services: ServiceRow
   const [update, setUpdate] = useState<UpdateCheckPayload>();
   const [updateResult, setUpdateResult] = useState<Omit<TaskResult, "task">>();
   const [closed, setClosed] = useState(false);
+  const [serviceName, setServiceName] = useState("");
   const { run, pending, error } = useOperatorAction();
   const loadLogs = async (): Promise<void> => {
     try {
@@ -119,9 +127,9 @@ export function SystemPage(props: { status?: StatusSummary; services: ServiceRow
                   {rows.map((row) => (
                     <TableRow key={row.name}>
                       <TableCell>
-                        <a href={hrefFor("services", row.name)} className="text-primary hover:underline">
+                        <button type="button" className="text-primary hover:underline" onClick={() => setServiceName(row.name)}>
                           {row.name}
-                        </a>
+                        </button>
                       </TableCell>
                       <TableCell>
                         <StatusBadge value={row.state} />
@@ -275,6 +283,18 @@ export function SystemPage(props: { status?: StatusSummary; services: ServiceRow
         <p role="alert" className="text-xs text-destructive">
           {error}
         </p>
+      ) : null}
+      {serviceName ? (
+        <ServiceDetail
+          key={serviceName}
+          name={serviceName}
+          row={props.services.find((row) => row.name === serviceName)}
+          config={props.configServices}
+          busy={props.busy}
+          onControl={props.onControl}
+          onClose={() => setServiceName("")}
+          onOpenService={setServiceName}
+        />
       ) : null}
     </div>
   );

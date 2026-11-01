@@ -649,7 +649,15 @@ export function App() {
               />
             ) : null}
             {route.name === "doctor" ? <DoctorPage /> : null}
-            {route.name === "system" ? <SystemPage status={status} services={services} /> : null}
+            {route.name === "system" ? (
+              <SystemPage
+                status={status}
+                services={services}
+                configServices={config?.services ?? []}
+                busy={Boolean(busy)}
+                onControl={runControl}
+              />
+            ) : null}
             {route.name === "identity" ? <IdentityPage status={status} /> : null}
             {route.name === "llm" ? (
               <LlmPage

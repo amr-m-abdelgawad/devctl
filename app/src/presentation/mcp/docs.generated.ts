@@ -4902,7 +4902,7 @@ Refresh identity, revoke ADC with **Sign out**, or clear cached tokens. **Creden
 
 ## System and maintenance
 
-**System & supervisor** (\`#/system\`) shows host CPU and memory, per-service CPU, memory, restarts and uptime, supervisor memory and event-loop lag, and log-pipeline statistics. **Bootstrap logs** reads the startup log with redaction. **Maintenance** checks for updates and offers the detected installation method after review; restart devctl afterward. Shutdown offers separate reviewed choices to leave services running or stop them with the supervisor.
+**System & supervisor** (\`#/system\`) shows host CPU and memory, per-service CPU, memory, restarts and uptime, supervisor memory and event-loop lag, and log-pipeline statistics. Opening a service, or a dependency from its dialog, stays on that page. **Bootstrap logs** reads the startup log with redaction. **Maintenance** checks for updates and offers the detected installation method after review; restart devctl afterward. Shutdown offers separate reviewed choices to leave services running or stop them with the supervisor.
 
 ## If something is missing
 

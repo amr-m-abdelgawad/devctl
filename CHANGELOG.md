@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- On **Profiles & tasks**, **View N services** uses a caret, and choosing a member opens that service's dialog on the page. A dependency in the dialog opens that service in the same dialog. See [Web console](docs/web.md).
+- On **Profiles & tasks**, **View N services** uses a caret, and choosing a member opens that service's dialog on the page. A dependency in the dialog opens that service in the same dialog. **System & supervisor** does the same for a service in the resource table and for a dependency in that dialog. See [Web console](docs/web.md).
 
 ### Fixed
 
