@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-11-01
+
 ### Added
 
 - The web console sidebar, and the navigation dialog on a narrow window, include **Feedback**. It opens GitHub to report a bug or share an idea. See [Web console](docs/web.md).
@@ -843,7 +845,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.1...HEAD
+[0.28.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.0...v0.28.1
 [0.28.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.25.0...v0.26.0
