@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The web console sidebar, and the navigation dialog on a narrow window, include **Feedback**. It opens GitHub to report a bug or share an idea. See [Web console](docs/web.md).
+
+### Changed
+
+- While Doctor is running, the web console and the TUI show an animated pixel ghost. The web page says **Running diagnostics…**, or **Refreshing diagnostics…** when a report is already on screen, and that report stays visible. The TUI panel is titled **environment diagnostics**. It names the check in progress, counts completed checks, warnings, and errors, and lists the latest results. See [Doctor](docs/doctor.md).
+
 ## [0.28.0] - 2026-11-01
 
 ### Changed
