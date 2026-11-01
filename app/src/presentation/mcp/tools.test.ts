@@ -6,7 +6,7 @@ import { logRecord } from "../../domain/logs/logs.ts";
 import { REDACTED_VALUE } from "../../adapters/secrets/detector.ts";
 import { emptyRuntime, HealthHealthy, StateRunning } from "../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
-import { callMcpTool, getLogs, getLogSession, isWebControlTool, iterateLogsExport, listServices, MCP_LOG_CAP, type McpHost } from "./tools.ts";
+import { callMcpTool, getLogSession, isWebControlTool, iterateLogsExport, listServices, MCP_LOG_CAP, type McpHost } from "./tools.ts";
 
 function sampleSnap(): StatusSnapshot {
   const api = emptyRuntime("api");
@@ -355,7 +355,9 @@ describe("mcp tools", () => {
     expect(seen?.dedupeRequestId).toBe(false);
     await callMcpTool(host, "get_logs", { hide_grpc: true });
     expect(seen?.hideGrpc).toBe(true);
-    await getLogs(host, { exclude_services: "api,web" });
+    await callMcpTool(host, "get_logs", { exclude_services: ["api", "web"] });
+    expect(seen?.excludeServices).toEqual(["api", "web"]);
+    await callMcpTool(host, "recent_errors", { exclude_services: "api, web" });
     expect(seen?.excludeServices).toEqual(["api", "web"]);
     host.logsStats = (req) => {
       seen = req;

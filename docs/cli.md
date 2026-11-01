@@ -19,7 +19,7 @@ devctl test [--profile <name> | --services a,b] [--timeout 5m] [--env-from <svc>
 devctl bundle [--since 10m] [--output <dir|file.tgz>]
 devctl status [--repo <path>] [--json] [--watch]
 devctl config import compose <file> [--write]
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--hide-grpc] [--output] [--json] [-f|--follow] [--all]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--hide-grpc] [--exclude a,b] [--output] [--json] [-f|--follow] [--all]
 devctl logs export --output FILE
 devctl llm [--source] [--caller] [--model] [--status] [--search] [--since] [--until] [--json] [-f|--follow]
 devctl llm show <id> [--json]

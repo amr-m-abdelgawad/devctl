@@ -592,7 +592,7 @@ devctl test [--profile <name> | --services a,b] [--timeout 5m] [--env-from <svc>
 devctl bundle [--since 10m] [--output <dir|file.tgz>]
 devctl status [--repo <path>] [--json] [--watch]
 devctl config import compose <file> [--write]
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--hide-grpc] [--output] [--json] [-f|--follow] [--all]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--hide-grpc] [--exclude a,b] [--output] [--json] [-f|--follow] [--all]
 devctl logs export --output FILE
 devctl llm [--source] [--caller] [--model] [--status] [--search] [--since] [--until] [--json] [-f|--follow]
 devctl llm show <id> [--json]
@@ -2287,13 +2287,14 @@ History loads a persisted session (same store as TUI \`/history\`). Export downl
 - \`levels\`: \`["info", "warn"]\`, \`["warn", "error"]\`, and the other combinations of \`trace\`, \`debug\`, \`info\`, \`warn\`, \`error\`, and \`fatal\`. A comma-separated string works too. Omit it to show every level. \`level\` stays a minimum and is ignored when \`levels\` is set.
 - \`hide_health\`: \`true\` hides supervisor health probes and the REST and gRPC health-endpoint request lines, from the service and from the proxy.
 - \`hide_grpc\`: \`true\` omits gRPC proxy logs and records marked \`rpc.system=grpc\`. Omit it to show them.
+- \`exclude_services\`: \`["api", "web"]\` leaves those services out. A comma-separated string also works. \`get_log_stats\` still lists them in \`byService\`.
 
-\`recent_errors\` stays error and fatal, and accepts \`hide_health\` and \`hide_grpc\`.
+\`recent_errors\` stays error and fatal, and accepts \`hide_health\`, \`hide_grpc\`, and \`exclude_services\`.
 
 ## CLI
 
 \`\`\`bash
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--hide-grpc] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--hide-grpc] [--exclude a,b] [--json]
 devctl logs                        # latest page (same as MCP get_logs); pass --all for the full match set
 devctl logs -f                     # keep printing new matching events until interrupted
 devctl logs --output FILE          # same filters, write a file (full history, not just one page)
@@ -2302,6 +2303,7 @@ devctl logs --trace <id>           # spans plus correlated logs for that trace
 devctl logs --request-id <id>      # filter by X-Devctl-Request-ID
 devctl logs --dedupe-request-id    # collapse nearby events that share a request id
 devctl logs --hide-grpc            # omit gRPC proxy logs; omit the flag to show them
+devctl logs --exclude api,web      # hide these services; repeat the flag or use commas
 devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not service logs
 \`\`\`
 
@@ -2440,8 +2442,8 @@ on). It needs a running listener (\`devctl mcp --on --write …\`).
 | \`get_status\` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | \`get_preferences\` | inspect | Resolved operator prefs, write paths, and layer provenance (\`user\` / \`repo\` / \`default\`). \`scope\` labels the save target |
 | \`set_preferences\` | control | Write TUI/web prefs (\`scope\` repo or user). MCP listen always hits the repo overlay. \`regenerate_session_tokens\` (default false) remints saved MCP and web bearers after 7 days. \`local.web_enabled\` / \`local.web_port\` / \`local.inspect_max_bytes\` patch \`.devctl/config.local.yaml\` then reload |
-| \`get_logs\` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass \`limit\`, max 5000). \`levels\` is the set to show, such as \`["info", "warn"]\` or \`["warn", "error"]\`; omit it to show every level, including lines with no level. \`level\` is a minimum (\`error\` includes fatal) and is ignored when \`levels\` is set. \`hide_health: true\` drops supervisor health probes and request logs for HTTP health/ready/live endpoints and gRPC \`grpc.health.v1.Health\`, from the service and the proxy. \`hide_grpc=true\` omits gRPC proxy logs and records marked \`rpc.system=grpc\`. Also filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/source/time. Pass \`cursor\` from \`next_cursor\` to page toward newer events (\`direction\` defaults to forward when a cursor is set); pass \`cursor\` from \`prev_cursor\` with \`direction=backward\` for older events. \`regex=true\` treats \`search\` as a regular expression. \`since\`/\`until\` are plain timestamp filters for a fresh query |
-| \`get_log_stats\` | logs | Facet counts for the current filter (by service, level, and source). No event payload. Same filters as \`get_logs\`, including \`hide_health\` and \`hide_grpc\` |
+| \`get_logs\` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass \`limit\`, max 5000). \`levels\` is the set to show, such as \`["info", "warn"]\` or \`["warn", "error"]\`; omit it to show every level, including lines with no level. \`level\` is a minimum (\`error\` includes fatal) and is ignored when \`levels\` is set. \`hide_health: true\` drops supervisor health probes and request logs for HTTP health/ready/live endpoints and gRPC \`grpc.health.v1.Health\`, from the service and the proxy. \`hide_grpc=true\` omits gRPC proxy logs and records marked \`rpc.system=grpc\`. \`exclude_services\` leaves out the services it names. Also filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/source/time. Pass \`cursor\` from \`next_cursor\` to page toward newer events (\`direction\` defaults to forward when a cursor is set); pass \`cursor\` from \`prev_cursor\` with \`direction=backward\` for older events. \`regex=true\` treats \`search\` as a regular expression. \`since\`/\`until\` are plain timestamp filters for a fresh query |
+| \`get_log_stats\` | logs | Facet counts for the current filter (by service, level, and source). No event payload. Same filters as \`get_logs\`, including \`hide_health\`, \`hide_grpc\`, and \`exclude_services\` |
 | \`get_trace\` | logs | Span tree plus correlated log records for a W3C \`trace_id\`, secrets redacted |
 | \`trace_request\` | logs | Resolve a proxy \`X-Devctl-Request-ID\` to its trace, then return the span tree and correlated logs |
 | \`get_requests\` | inspect | The proxy's recent requests — method, route, status, duration, identity, request/trace ids, and \`captured\` when a traffic-inspector body exists |
@@ -2449,7 +2451,7 @@ on). It needs a running listener (\`devctl mcp --on --write …\`).
 | \`get_llm_call\` | inspect | One LLM call by id, including redacted request/response payloads |
 | \`get_traffic_calls\` | inspect | Filtered HTTP/gRPC hops captured on \`inspect.enabled\` proxy routes, secrets redacted, bodies omitted. Direct sockets that never hit the proxy are invisible. Filter with \`route\`, \`caller\`, \`method\`, \`status\`, \`transport\`, \`search\`, \`request_id\`, \`trace_id\`. Pass \`cursor\` from \`next_cursor\` to page toward older calls |
 | \`get_traffic_call\` | inspect | One captured proxy hop by id, including redacted request/response payloads. \`/reveal\` cannot unmask these bodies |
-| \`recent_errors\` | logs | The latest error and fatal log records, capped at 200, same paging as \`get_logs\`. \`hide_health: true\` drops health-check failures. \`hide_grpc=true\` omits gRPC proxy logs |
+| \`recent_errors\` | logs | The latest error and fatal log records, capped at 200, same paging as \`get_logs\`. \`hide_health: true\` drops health-check failures. \`exclude_services\` leaves out the services it names. \`hide_grpc=true\` omits gRPC proxy logs |
 | \`list_profiles\` | inspect | Config profiles and members |
 | \`get_config\` | inspect | Merged summary: project, services, routes, proxy paths |
 | \`get_config_sources\` | inspect | Effective values with winning and shadowed configuration sources; secret-like values are redacted |
