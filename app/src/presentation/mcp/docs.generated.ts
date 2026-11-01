@@ -2183,6 +2183,8 @@ Each line is stored as an OpenTelemetry-style record — body, attributes, sever
 
 ANSI color codes are stripped before severity classification and structured parse (\`\\x1b[31mERROR\\x1b[0m\` is ERROR). The stored \`raw\` field keeps the original bytes.
 
+A plain-text line takes the level it states: a level near the start, after any timestamp, bracketed tag, or logger name (\`2026-11-01T08:11:44Z  WARN worker: …\`, \`[warn] …\`, \`INFO: …\`), or a \`level=\`, \`lvl=\`, \`severity=\`, or \`loglevel=\` field on a logfmt line. Words later in the message do not raise it, so \`WARN retried error=timeout\` is WARN. A line that states no level is classified by keywords anywhere in it, such as \`connection error\`. On an \`INFO: … "GET /x HTTP/1.1" 500 Internal Server Error\` access line the status text still counts, so that line is ERROR.
+
 Process \`stdout\`/\`stderr\` can fold several physical lines into one event. Python tracebacks (\`Traceback (most recent call last):\` plus indented frames and the exception line) and a bare HTTP status continuation (\`             200\`) are always folded. Optional \`services.<name>.logs.multiline\` adds start/continuation regexes:
 
 \`\`\`yaml

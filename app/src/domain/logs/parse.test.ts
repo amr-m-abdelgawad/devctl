@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { formatBodySummary, logRecord } from "./logs.ts";
-import { parseJSONLogLine, parseLogLine, structuredBodyLooksLikeBraces } from "./parse.ts";
-import { SeverityError, SeverityInfo, SeverityWarn } from "./severity.ts";
+import { severityFromFoldedLines } from "./multiline.ts";
+import { parseJSONLogLine, parseLogLine, severityFromPlainText, structuredBodyLooksLikeBraces } from "./parse.ts";
+import { SeverityDebug, SeverityError, SeverityFatal, SeverityInfo, SeverityTrace, SeverityUnspecified, SeverityWarn } from "./severity.ts";
 
 function summary(line: string): string {
   const parsed = parseJSONLogLine(line) ?? parseLogLine(line);
@@ -268,5 +269,99 @@ describe("structured log parse table", () => {
       expect(structuredBodyLooksLikeBraces(text), line).toBe(false);
       expect(text.trim().startsWith("{"), line).toBe(false);
     }
+  });
+});
+
+describe("plain-text severity", () => {
+  const TEMPORAL_WARN =
+    '2026-11-01T08:11:44.640986Z  WARN temporalio_client::retry: gRPC call poll_workflow_task_queue retried 15 times error=Status { code: Unavailable, message: "upstream request timeout", metadata: MetadataMap { headers: {"content-type": "application/grpc", "alt-svc": "h3=\\":443\\"; ma=2592000", "content-length": "0", "via": "1.1 google", "date": "Sun, 01 Nov 2026 08:11:44 GMT"} }, source: None }';
+
+  test("a Rust tracing WARN stays WARN when the message carries error=", () => {
+    const parsed = parseLogLine(TEMPORAL_WARN);
+    expect(parsed.severityNumber).toBe(SeverityWarn);
+    expect(parsed.severityText).toBe("WARN");
+    expect(parsed.body).toBe(TEMPORAL_WARN);
+  });
+
+  test.each([
+    ["INFO handled error page", SeverityInfo],
+    ["WARN retrying after err", SeverityWarn],
+    ["DEBUG entering critical section", SeverityDebug],
+    ["TRACE fatal path skipped", SeverityTrace],
+    ["[WARN] retry failed error=timeout", SeverityWarn],
+    ["[warn] retry failed with an error", SeverityWarn],
+    ["(info) error page rendered", SeverityInfo],
+    ["[2026-11-01T08:11:44Z WARN  worker::poll] stream error", SeverityWarn],
+    ["[08:11:44] [INFO] fatal path skipped", SeverityInfo],
+    ["2026/11/01 08:11:44 [warn] 123#0: *1 upstream error", SeverityWarn],
+    ["2026-11-01T08:11:44.640Z\twarn\tworker\tretry error", SeverityWarn],
+    ["2026-11-01 08:11:44,640 WARNING worker: job error", SeverityWarn],
+    ["2026-11-01 08:11:44,640 - my.app - WARNING - job error", SeverityWarn],
+    ["2026-11-01 08:11:44.640  WARN 4242 --- [main] c.e.App : job error", SeverityWarn],
+    ["08:11:44.640 [main] INFO  com.example.App - error page", SeverityInfo],
+    ["WARNING:root:job error", SeverityWarn],
+    ["warning: unused variable `error`", SeverityWarn],
+    ["Warning: Error boundary mounted twice", SeverityWarn],
+    ["WARN[0003] retry error", SeverityWarn],
+    ["api | WARN retry error", SeverityWarn],
+    ["worker: INFO error page", SeverityInfo],
+  ])("the stated level of %j wins over keywords in the message", (line, level) => {
+    expect(severityFromPlainText(line)).toBe(level);
+  });
+
+  test.each([
+    ['time="2026-11-01T08:11:44Z" level=warning msg="retry error"', SeverityWarn],
+    ['ts=2026-11-01T08:11:44Z caller=poll.go:9 level=info msg="fatal path skipped"', SeverityInfo],
+    ['msg="job error" lvl=warn', SeverityWarn],
+    ["severity=debug text=error", SeverityDebug],
+    ['level="warn" error="timeout"', SeverityWarn],
+    ['2026-11-01T08:11:44Z level=warn msg="retry error"', SeverityWarn],
+    ['[api] level=info msg="error page"', SeverityInfo],
+  ])("a level key in %j wins over keywords in the message", (line, level) => {
+    expect(severityFromPlainText(line)).toBe(level);
+  });
+
+  test.each([
+    ["ERROR request finished with a warning", SeverityError],
+    ["2026-11-01T08:11:44Z ERROR retry budget spent", SeverityError],
+    ["FATAL ran out of memory", SeverityFatal],
+    ["CRITICAL disk full", SeverityFatal],
+    ["ERR connection refused", SeverityError],
+    ["Error: connect ECONNREFUSED", SeverityError],
+    ["Error connecting to the database", SeverityError],
+    ["connection error", SeverityError],
+    ["connection error while setting level=debug", SeverityError],
+    ["status=error", SeverityError],
+    ["Debug build failed with an error", SeverityError],
+    ["fatal error in worker", SeverityFatal],
+    ["upstream said warn", SeverityWarn],
+    ["ran the info command", SeverityInfo],
+    ["plain text line", SeverityUnspecified],
+    ["2026-11-01T08:11:44Z plain text line", SeverityUnspecified],
+    ["level=verbose msg=ready", SeverityUnspecified],
+  ])("%j keeps its level", (line, level) => {
+    expect(severityFromPlainText(line)).toBe(level);
+  });
+
+  test("ANSI around a stated level does not hide it", () => {
+    expect(severityFromPlainText("\x1b[33mWARN\x1b[0m retry error")).toBe(SeverityWarn);
+  });
+
+  test("a word in a request path does not raise an access line", () => {
+    expect(severityFromPlainText('INFO:     127.0.0.1:5000 - "GET /error HTTP/1.1" 200 OK')).toBe(SeverityInfo);
+  });
+
+  test("an access line's status text still counts", () => {
+    expect(severityFromPlainText('INFO:     127.0.0.1:5000 - "GET /x HTTP/1.1" 500 Internal Server Error')).toBe(SeverityError);
+    expect(severityFromPlainText('INFO:     127.0.0.1:5000 - "GET /x HTTP/1.1" 404 Not Found')).toBe(SeverityInfo);
+  });
+
+  test("prose before an object uses the stated level", () => {
+    const parsed = parseLogLine('2026-11-01T08:11:44Z WARN request error: {"attempt": 3}');
+    expect(parsed.severityNumber).toBe(SeverityWarn);
+  });
+
+  test("a folded event takes the stated level of its first line", () => {
+    expect(severityFromFoldedLines(["2026-11-01T08:11:44Z WARN retry error=timeout", "  caused by: error"])).toBe(SeverityWarn);
   });
 });
