@@ -105,6 +105,15 @@ export function useLogView({
   const clearLogLevels = useCallback(() => {
     setLogLevels([]);
   }, []);
+  // Excluding the service a pane is scoped to would leave that pane empty, so it goes back to all.
+  const toggleExcludedLogService = useCallback((name: string) => {
+    setExcludedLogServices((current) => (current.includes(name) ? current.filter((item) => item !== name) : [...current, name].sort()));
+    setLogService((current) => (current === name ? "" : current));
+    setLogServiceB((current) => (current === name ? "" : current));
+  }, []);
+  const clearExcludedLogServices = useCallback(() => {
+    setExcludedLogServices(NO_LOG_SERVICES);
+  }, []);
   const toggleHideHealthLogs = useCallback(() => {
     setHideHealthLogs((value) => !value);
   }, []);
@@ -115,6 +124,7 @@ export function useLogView({
   const [logUntil, setLogUntil] = useState("");
   const [logService, setLogService] = useState("");
   const [logServiceB, setLogServiceB] = useState("");
+  const [excludedLogServices, setExcludedLogServices] = useState<string[]>(NO_LOG_SERVICES);
   const [splitLogs, setSplitLogs] = useState(false);
   const [splitFocus, setSplitFocus] = useState<0 | 1>(0);
   const [logSelectedB, setLogSelectedB] = useState(LOG_LIST_TAIL - 1);
@@ -158,6 +168,7 @@ export function useLogView({
       filterLogs(logs, {
         service: logService,
         services: logServices,
+        excludeServices: excludedLogServices,
         errorOnly,
         levels: logLevels,
         hideHealth: hideHealthLogs,
@@ -169,7 +180,7 @@ export function useLogView({
         systemLogs: showSystemLogs,
         grpcLogs: showGrpcLogs,
       }),
-    [errorOnly, hideHealthLogs, logLevels, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, logs, showGrpcLogs, showSystemLogs],
+    [errorOnly, excludedLogServices, hideHealthLogs, logLevels, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, logs, showGrpcLogs, showSystemLogs],
   );
   const logWindow = useMemo(
     () => logViewWindow(filteredLogs, logPinned, logViewStart),
@@ -181,6 +192,7 @@ export function useLogView({
       filterLogs(logs, {
         service: logServiceB,
         services: logServices,
+        excludeServices: excludedLogServices,
         errorOnly,
         levels: logLevels,
         hideHealth: hideHealthLogs,
@@ -192,7 +204,7 @@ export function useLogView({
         systemLogs: showSystemLogs,
         grpcLogs: showGrpcLogs,
       }),
-    [errorOnly, hideHealthLogs, logLevels, logRegex, logSearch, logServiceB, logServices, logSince, logSource, logUntil, logs, showGrpcLogs, showSystemLogs],
+    [errorOnly, excludedLogServices, hideHealthLogs, logLevels, logRegex, logSearch, logServiceB, logServices, logSince, logSource, logUntil, logs, showGrpcLogs, showSystemLogs],
   );
   const logWindowB = useMemo(
     () => logViewWindow(filteredLogsB, logPinnedB, logViewStartB),
@@ -213,12 +225,12 @@ export function useLogView({
     pinnedRef.current = false;
     setLogPinned(false);
     setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
-  }, [errorOnly, hideHealthLogs, logLevels, logSearch, logService, showGrpcLogs, showSystemLogs]);
+  }, [errorOnly, excludedLogServices, hideHealthLogs, logLevels, logSearch, logService, showGrpcLogs, showSystemLogs]);
   useEffect(() => {
     pinnedBRef.current = false;
     setLogPinnedB(false);
     setLogSelectedB(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogsB.length) - 1));
-  }, [errorOnly, hideHealthLogs, logLevels, logSearch, logServiceB, showGrpcLogs, showSystemLogs]);
+  }, [errorOnly, excludedLogServices, hideHealthLogs, logLevels, logSearch, logServiceB, showGrpcLogs, showSystemLogs]);
 
   useEffect(() => {
     if (screen !== "logs") {
@@ -332,6 +344,7 @@ export function useLogView({
       // page request must not pin either pane's service (that would starve
       // the other pane of history and make the two tails drift).
       services: splitLogs ? NO_LOG_SERVICES : logService !== "" ? [logService] : logServices,
+      excludeServices: excludedLogServices,
       level: logLevels.length > 0 ? "" : logLevel,
       levels: logLevels.length > 0 ? logLevels : undefined,
       hideHealth: hideHealthLogs ? true : undefined,
@@ -342,7 +355,7 @@ export function useLogView({
       until: logUntil,
       hideGrpc: !showGrpcLogs,
     }),
-    [hideHealthLogs, logLevel, logLevels, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, showGrpcLogs, splitLogs],
+    [excludedLogServices, hideHealthLogs, logLevel, logLevels, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, showGrpcLogs, splitLogs],
   );
 
   // Deliberately lightweight (no event payload) — safe to poll on a timer
@@ -510,6 +523,9 @@ export function useLogView({
     clearLogLevels,
     hideHealthLogs,
     toggleHideHealthLogs,
+    excludedLogServices,
+    toggleExcludedLogService,
+    clearExcludedLogServices,
     showSystemLogs,
     showGrpcLogs,
     toggleGrpcLogs,

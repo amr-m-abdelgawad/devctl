@@ -69,6 +69,7 @@ export function allCommands(): CommandSpec[] {
     { name: "split", aliases: [], desc: "Split the logs screen into two service panes", leader: "", group: "logs" },
     { name: "trace", aliases: [], desc: "Search logs for a request or trace id", leader: "", group: "logs", usage: "<id>" },
     { name: "filter", aliases: [], desc: "Toggle ERROR+ log filter", leader: "", group: "logs" },
+    { name: "exclude", aliases: [], desc: "Hide services from logs", leader: "", group: "logs", usage: "[service…|clear]" },
     { name: "levels", aliases: ["level"], desc: "Show only these log levels, such as info,warn or warn,error", leader: "", group: "logs", usage: "[levels]", suggest: [
       { token: "info,warn", desc: "Info and warn" },
       { token: "warn,error", desc: "Warn and error" },

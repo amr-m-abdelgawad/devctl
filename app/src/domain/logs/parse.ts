@@ -466,10 +466,78 @@ export function parseRequestID(line: string): string {
   return match?.[1] ?? "";
 }
 
+// How far into a line a leading level can sit, as a bound on the hot ingest path.
+const LEADING_LEVEL_CHARS = 256;
+const LEADING_LEVEL_TOKENS = 8;
+const LEADING_TOKEN_RE = /\[[^\]]*\]|\S+/g;
+// A word with logrus's "[0003]" or a colon label: "WARN", "WARN[0003]", "warn:", "WARNING:root:msg".
+const LEADING_WORD_RE = /^([a-z]+)(\[\d+\])?(:.*)?$/i;
+const LOGFMT_FIELD_RE = /^[\w.\-]+=/;
+const KEYED_LEVEL_RE = /(?:^|\s)(?:level|lvl|severity|loglevel)=["']?([a-z]+)/i;
+const ACCESS_STATUS_TEXT_RE = /"[A-Z]+ \S+ HTTP\/[\d.]+"\s+\d{3}\b(.*)$/;
+
+function keywordLevel(text: string): number {
+  return LEVEL_PATTERNS.find((p) => p.re.test(text))?.level ?? SeverityUnspecified;
+}
+
+// A bare "Error" or "debug" opening a line can be prose, so a word counts as a
+// level only in capitals, with a label, or where a logger puts one: after a
+// timestamp or inside brackets.
+function tokenLevel(token: string, positioned: boolean): number {
+  const match = LEADING_WORD_RE.exec(token);
+  const word = match?.[1];
+  if (!word || !(positioned || match[2] || match[3] || word === word.toUpperCase())) {
+    return SeverityUnspecified;
+  }
+  return keywordLevel(word);
+}
+
+function bareNameBesideSeparator(tokens: string[], i: number): boolean {
+  return PREAMBLE_BARE_NAME_RE.test(tokens[i] ?? "") &&
+    (PREAMBLE_SEPARATOR_RE.test(tokens[i - 1] ?? "") || PREAMBLE_SEPARATOR_RE.test(tokens[i + 1] ?? ""));
+}
+
+function keyedLevel(text: string): number {
+  const keyed = KEYED_LEVEL_RE.exec(text)?.[1];
+  return keyed === undefined ? SeverityUnspecified : keywordLevel(keyed);
+}
+
+function leadingLevel(text: string, insideBrackets = false): number {
+  const tokens = text.slice(0, LEADING_LEVEL_CHARS).match(LEADING_TOKEN_RE)?.slice(0, LEADING_LEVEL_TOKENS) ?? [];
+  let positioned = insideBrackets;
+  for (const [i, token] of tokens.entries()) {
+    const level = tokenLevel(token, positioned);
+    if (level !== SeverityUnspecified) {
+      return level;
+    }
+    if (LOGFMT_FIELD_RE.test(token)) {
+      return keyedLevel(text);
+    }
+    if (PREAMBLE_TIMESTAMP_RE.test(token)) {
+      positioned = true;
+    } else if (PREAMBLE_BRACKETED_RE.test(token)) {
+      const tagged = leadingLevel(token.replace(/^[[(]|[\])]:?$/g, ""), true);
+      if (tagged !== SeverityUnspecified) {
+        return tagged;
+      }
+    } else if (!PREAMBLE_LOGGER_RE.test(token) && !PREAMBLE_SEPARATOR_RE.test(token) && !bareNameBesideSeparator(tokens, i)) {
+      return SeverityUnspecified;
+    }
+  }
+  return SeverityUnspecified;
+}
+
+// The level a logger states beats words in the message, which may only mention
+// a failure ("WARN ... error=timeout"). Keywords decide lines that state none.
 export function severityFromPlainText(line: string): number {
   const plain = stripAnsi(line);
-  const found = LEVEL_PATTERNS.find((p) => p.re.test(plain));
-  return found?.level ?? SeverityUnspecified;
+  const stated = leadingLevel(plain);
+  if (stated === SeverityUnspecified) {
+    return keywordLevel(plain);
+  }
+  // uvicorn logs every response at INFO, so its status text is what marks a 500.
+  const statusText = ACCESS_STATUS_TEXT_RE.exec(plain)?.[1];
+  return statusText === undefined ? stated : Math.max(stated, keywordLevel(statusText));
 }
 
 export function structuredBodyLooksLikeBraces(body: AnyValue): boolean {

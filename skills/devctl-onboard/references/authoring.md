@@ -35,7 +35,7 @@ complete allowlists.
 | `service.identity` | `type` `mode` `service_account` `config` |
 | `service.restart` | `enabled` `policy` `max_retries` `backoff_seconds` |
 | `service.startup` | `wait_for_healthy` `timeout_seconds` |
-| `service.logs` | `stdout` `stderr` `multiline` `dedupe_access_line` |
+| `service.logs` | `stdout` `stderr` `multiline` `dedupe_access_line` `severity_regex` |
 | `service.logs.multiline` | `start` `continuation` `max_wait_ms` `max_lines` |
 | `service.environment` | `required` `defaults` `terraform` `helm` + arbitrary `KEY: value` pairs |
 | `service.environment.terraform` | `path` `resource` `attribute`, or a string path |
@@ -622,6 +622,8 @@ Every message names its path. Fix the path it names.
 | `services.X.logs.multiline.start is not a valid regular expression` | `start` / `continuation` must compile as a JS regex |
 | `services.X.logs.multiline.max_wait_ms must be >= 0` | negative idle fold timeout |
 | `services.X.logs.multiline.max_lines must be >= 0` | negative fold cap |
+| `services.X.logs.severity_regex must be a string` | present value is not a string |
+| `services.X.logs.severity_regex must be a valid regular expression with a capture group for the level and no nested quantifiers` | pattern does not compile, has no capture group, or nests quantifiers |
 | `services.X.logs.dedupe_access_line must be a boolean` | present value is not `true`/`false` |
 | `proxy.routes[i].log.grpc.ok[j].status must be a number` | each ok entry needs a numeric gRPC status |
 | `proxy.routes[i].log.grpc.ok[j].status must be an integer from 0 to 16` | listed statuses are gRPC codes; 0 customizes log and inspect only |

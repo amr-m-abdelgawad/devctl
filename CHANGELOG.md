@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `services.<name>.logs.severity_regex` reads the level from a log format devctl does not recognise. The first capture group holds a level name or a one-letter level. See [Logs](docs/logs.md).
+- The TUI and the web console can hide one or more services from logs. In the TUI, use the **exclude** chip, `x` on the logs screen, or `/exclude`. In the web console, use the **Exclude** menu next to the service filter. Counts, search, history, and exports follow the exclusion. See [TUI](docs/tui.md) and [Web console](docs/web.md).
+
+### Fixed
+
+- A plain-text log line keeps the level it states. `WARN … error=…`, `INFO handled error page`, and `DEBUG … critical section` were stored at the highest level named anywhere in the line, so warnings filled `recent_errors`, the ERROR+ filter, and `logs.errors`. A leading level, or a `level=`, `lvl=`, `severity=`, or `loglevel=` field on a logfmt line, now wins. Lines that state no level still classify by keyword. See [Logs](docs/logs.md).
+
 ## [0.28.1] - 2026-11-01
 
 ### Added

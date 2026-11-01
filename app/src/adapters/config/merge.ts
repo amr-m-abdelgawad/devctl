@@ -677,6 +677,7 @@ function mergeServiceLogs(base: ServiceLogConfig, raw: unknown): ServiceLogConfi
     stderr: raw.stderr !== undefined ? asBoolean(raw.stderr) : base.stderr,
     multiline: mergeServiceLogMultiline(base.multiline, raw.multiline),
     dedupe_access_line: raw.dedupe_access_line !== undefined ? (raw.dedupe_access_line as boolean) : base.dedupe_access_line,
+    severity_regex: raw.severity_regex !== undefined ? (raw.severity_regex as string) : base.severity_regex,
   };
 }
 
@@ -1010,6 +1011,7 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
     stderr: present.has("logs.stderr") ? svc.logs.stderr : base.logs.stderr,
     multiline: mergeMultilineOverPresence(base.logs.multiline, svc.logs.multiline, present),
     dedupe_access_line: present.has("logs.dedupe_access_line") ? svc.logs.dedupe_access_line : base.logs.dedupe_access_line,
+    severity_regex: present.has("logs.severity_regex") ? svc.logs.severity_regex : base.logs.severity_regex,
   };
   out.restart = {
     enabled: present.has("restart.enabled") ? svc.restart.enabled : base.restart.enabled,

@@ -371,6 +371,10 @@
               "type": "boolean",
               "description": "Drop a plain uvicorn-style access line when the previous event from the same pid already has the same method, path, and status (off by default)"
             },
+            "severity_regex": {
+              "type": "string",
+              "description": "Regular expression whose first capture group holds the level word, for log formats devctl cannot read on its own. A matching stdout or stderr line takes that level, ahead of every built-in rule. A level name or a one-letter level (T D I W E F) works. A line that does not match, or captures an unknown word, is classified as usual."
+            },
             "multiline": {
               "type": "object",
               "additionalProperties": false,

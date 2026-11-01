@@ -41,6 +41,8 @@ export function Dashboard(props: {
   onToggleLevel?: (level: string) => void;
   onClearLevels?: () => void;
   onToggleHealth?: () => void;
+  excludedLogServices?: readonly string[];
+  onExclude?: () => void;
   onToggleGrpc: () => void;
   onShowErrors?: () => void;
   wrapMode?: LogWrapMode;
@@ -85,6 +87,8 @@ export function Dashboard(props: {
     onToggleLevel,
     onClearLevels,
     onToggleHealth,
+    excludedLogServices,
+    onExclude,
     onToggleGrpc,
     onShowErrors,
     wrapMode = "all",
@@ -123,7 +127,7 @@ export function Dashboard(props: {
   const listWidth = serviceListPaneWidth(width, names, stacked);
   const logWidth = Math.max(24, stacked ? width - 4 : width - listWidth - 4);
   const filterBarLogs = logsForFilterChips(logs, { systemLogs: showSystemLogs, grpcLogs: showGrpcLogs });
-  const visible = filterLogs(logs, { service: logService, errorOnly, levels: logLevels, hideHealth: hideHealthLogs, systemLogs: showSystemLogs, grpcLogs: showGrpcLogs, search, regex });
+  const visible = filterLogs(logs, { service: logService, excludeServices: excludedLogServices, errorOnly, levels: logLevels, hideHealth: hideHealthLogs, systemLogs: showSystemLogs, grpcLogs: showGrpcLogs, search, regex });
   const shown = view ?? visible;
   const shownTotal = viewTotal ?? visible.length;
   const viewEnd = Math.min(shownTotal, viewStart + shown.length);
@@ -198,6 +202,8 @@ export function Dashboard(props: {
           onToggleLevel={onToggleLevel}
           onClearLevels={onClearLevels}
           onToggleHealth={onToggleHealth}
+          excludedCount={excludedLogServices?.length}
+          onExclude={onExclude}
           onToggleGrpc={onToggleGrpc}
           showGrpc={showGrpcLogs}
           facets={facets}

@@ -25,6 +25,9 @@ describe("facet window", () => {
     const warnOnly = window.facets({ levels: ["WARN"] });
     expect(warnOnly.total).toBe(0);
     expect(warnOnly.byLevel).toEqual({ INFO: 3, ERROR: 3 });
+    // Excluded services leave the total and the other breakdowns. byService still lists them.
+    const excluded = window.facets({ excludeServices: ["worker"] });
+    expect(excluded).toEqual({ total: 3, byService: { api: 3, worker: 3 }, byLevel: { INFO: 1, ERROR: 2 }, bySource: { stdout: 2, stderr: 1 } });
     // A level is a minimum: WARN keeps the errors. byLevel still shows what another level would give.
     const filtered = window.facets({ services: ["api"], level: "WARN" });
     expect(filtered.total).toBe(2);

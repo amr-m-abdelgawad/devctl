@@ -58,6 +58,7 @@ import {
   SEARCH_DEBOUNCE_MS,
   SELECTABLE_LOG_LEVELS,
   toggleListedLevel,
+  toggleListedService,
   type LogWrapMode,
 } from "../logs.ts";
 import { SearchInput, SearchableFilter } from "../components/filters.tsx";
@@ -99,6 +100,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
   const [sinceTime, setSinceTime] = useState("");
   const [untilTime, setUntilTime] = useState("");
   const [serviceB, setServiceB] = useState("");
+  const [excludedServices, setExcludedServices] = useState<string[]>([]);
   const [followA, setFollowA] = useState(!pinnedOnArrival);
   const [followB, setFollowB] = useState(true);
   const [tickA, setTickA] = useState(0);
@@ -130,6 +132,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
     () => ({
       ...liveLogsQuery({
         service: split ? undefined : serviceA,
+        excludeServices: excludedServices,
         levels,
         hideHealth,
         search,
@@ -142,7 +145,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
       since: dateInputIso(sinceTime),
       until: dateInputIso(untilTime),
     }),
-    [hideHealth, levels, regex, search, serviceA, showGrpc, showSystem, split, sinceTime, untilTime, advanced, dedupe],
+    [excludedServices, hideHealth, levels, regex, search, serviceA, showGrpc, showSystem, split, sinceTime, untilTime, advanced, dedupe],
   );
   const session = useLogSession({ active: true, paused, query, sessionId });
 
@@ -175,8 +178,8 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
   }, []);
 
   const filterOpts = useMemo(
-    () => ({ errorOnly, levels, hideHealth, search, regex, showSystem, showGrpc, since: session.since }),
-    [errorOnly, hideHealth, levels, regex, search, session.since, showGrpc, showSystem],
+    () => ({ errorOnly, excludeServices: excludedServices, levels, hideHealth, search, regex, showSystem, showGrpc, since: session.since }),
+    [errorOnly, excludedServices, hideHealth, levels, regex, search, session.since, showGrpc, showSystem],
   );
   const rowsA = useMemo(() => filterLogRows(session.events, { ...filterOpts, service: serviceA }), [filterOpts, serviceA, session.events]);
   const rowsB = useMemo(() => filterLogRows(session.events, { ...filterOpts, service: serviceB }), [filterOpts, serviceB, session.events]);
@@ -364,6 +367,15 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
         .catch(() => setCopied("failed"));
   };
 
+  // Excluding the service a pane is scoped to would leave that pane empty, so it goes back to all.
+  const toggleExcluded = (name: string): void => {
+    if (!excludedServices.includes(name)) {
+      setServiceA((current) => (current === name ? "" : current));
+      setServiceB((current) => (current === name ? "" : current));
+    }
+    setExcludedServices(toggleListedService(excludedServices, name));
+  };
+  const excludeOptions = [...new Set([...chips.map((chip) => chip.name).filter((name) => name !== ""), ...excludedServices])];
   const levelControls = (
     <LevelFilter
       levels={levels}
@@ -401,6 +413,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
             levels.length > 0 ||
             serviceA !== "" ||
             serviceB !== "" ||
+            excludedServices.length > 0 ||
             regex ||
             search !== ""
           }
@@ -425,6 +438,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
             setShowGrpc(true);
             setServiceA("");
             setServiceB("");
+            setExcludedServices([]);
             setSinceTime("");
             setUntilTime("");
           }}
@@ -473,6 +487,13 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
                 value={split && splitFocus === 1 ? serviceB : serviceA}
                 options={chips.map((chip) => ({ value: chip.name, label: chip.name || "All services", count: chip.count }))}
                 onChange={split && splitFocus === 1 ? setServiceB : setServiceA}
+              />
+              <ExcludeServicesFilter
+                services={excludeOptions}
+                excluded={excludedServices}
+                counts={sessionId ? undefined : session.facets?.byService}
+                onToggle={toggleExcluded}
+                onClear={() => setExcludedServices([])}
               />
               {levelControls}
             </>
@@ -1044,6 +1065,48 @@ function Toolbar(props: {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function ExcludeServicesFilter(props: {
+  services: string[];
+  excluded: string[];
+  counts: Record<string, number> | undefined;
+  onToggle: (name: string) => void;
+  onClear: () => void;
+}) {
+  const label = props.excluded.length === 0 ? "Exclude" : props.excluded.length === 1 ? `Excluding ${props.excluded[0]}` : `Excluding ${props.excluded.length}`;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant={props.excluded.length === 0 ? "outline" : "secondary"} aria-label="Exclude services from logs">
+          {label}
+          <CaretDownIcon data-icon="inline-end" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-80 w-60 overflow-y-auto">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Exclude services</DropdownMenuLabel>
+          <DropdownMenuItem disabled={props.excluded.length === 0} onSelect={props.onClear}>
+            Show all services
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {props.services.map((name) => (
+            <DropdownMenuCheckboxItem
+              key={name}
+              checked={props.excluded.includes(name)}
+              onCheckedChange={() => props.onToggle(name)}
+              onSelect={(event) => event.preventDefault()}
+            >
+              <span className="truncate">{name}</span>
+              {props.counts ? (
+                <span className="ml-auto font-mono text-xs text-muted-foreground">{props.counts[name] ?? 0}</span>
+              ) : null}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

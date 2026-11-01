@@ -63,6 +63,7 @@ const EOF_CR =
   "A trailing CR is stripped from the last unterminated line too, as from every other line. main's pump emitted its end-of-stream leftover without stripping it.";
 const CAP_READ_TIME =
   "A line longer than the 48 KiB split cap is emitted, truncated to 16 Ki characters, when the cap is reached, so it carries the read time of the read that crossed the cap. main buffered up to 1 MiB and emitted at the newline or at the 1 MiB force-break, truncating afterwards.";
+const STATED_LEVEL = "A stated WARN wins over the `err` keyword in the message; main took the highest keyword anywhere in the line.";
 const CAP_REST =
   "The rest of a line past the cap is skipped through its newline, so one long line is one record. main force-broke at 1 MiB and stored the rest of the same line as a record of its own.";
 const CAP_WHOLE_CODE_POINT =
@@ -220,6 +221,7 @@ export const FIXTURES: IngestFixture[] = [
       { at: 20, end: MIX_OUT },
       { at: 20, end: MIX_ERR },
     ],
+    intended: differs("mix/stderr/stderr", 1, STATED_LEVEL, { severityNumber: [17, 13], severityText: ["ERROR", "WARN"] }),
   },
   {
     name: "last line without a newline",
