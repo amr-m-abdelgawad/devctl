@@ -77,9 +77,12 @@ export function inlineAssets(html: string, dir: string): string {
     return all;
   });
   const withScripts = inlineExternalScripts(withSheets, dir);
-  // Drop network URLs from the blob, but keep SVG/MathML namespace URIs —
-  // stripping those makes React create generic Elements with no .style.
-  return withScripts.replace(/https?:\/\/(?!www\.w3\.org\/)[^\s"'`<>\\]+/g, "");
+  // Keep SVG/MathML namespaces and intentional repository navigation links.
+  // Bundled library documentation URLs are still discarded; external resources
+  // and network fetches are checked separately by assets.test.ts.
+  return withScripts.replace(/https?:\/\/(?!www\.w3\.org\/)[^\s"'`<>\\]+/g, (url) =>
+    url.startsWith("https://github.com/amr-m-abdelgawad/devctl/") ? url : "",
+  );
 }
 
 function inlineExternalScripts(html: string, dir: string): string {

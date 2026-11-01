@@ -1,3 +1,4 @@
+import { FeedbackMenu } from "./feedback-menu.tsx";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { DevctlLogo } from "../brand.tsx";
 import { uptimeLabel } from "../format.ts";
@@ -289,6 +290,7 @@ export function ConsoleShell(props: {
           </Button>
         )}
         {nav}
+        <div className="sidebar-feedback"><FeedbackMenu compact={collapsed} /></div>
         <div className="sidebar-footer" title={supervisorFooter(props.error, props.status)}>
           <span className={cn("size-1.5 rounded-full", props.error ? "bg-warning" : props.status ? "bg-success" : "bg-muted-foreground")} />
           <span>{supervisorFooter(props.error, props.status)}</span>
@@ -393,6 +395,7 @@ export function ConsoleShell(props: {
             <DialogDescription>{props.project || "Local workspace"}</DialogDescription>
           </DialogHeader>
           {nav}
+          <FeedbackMenu />
         </DialogContent>
       </Dialog>
       <Dialog open={searchOpen} onOpenChange={setSearchOpen}>

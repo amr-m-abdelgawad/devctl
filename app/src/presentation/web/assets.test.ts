@@ -35,7 +35,9 @@ describe("embedded web assets", () => {
     expect(WEB_INDEX_HTML).not.toMatch(/fetch\s*\(\s*["']https?:/i);
     expect(WEB_INDEX_HTML).not.toMatch(/fetch\s*\(\s*["']\/\//i);
     const urls = WEB_INDEX_HTML.match(/https?:\/\/[^\s"'`<>\\]+/g) ?? [];
-    expect(urls.every((url) => url.startsWith("http://www.w3.org/"))).toBe(true);
+    expect(urls.every((url) => url.startsWith("http://www.w3.org/") || url.startsWith("https://github.com/amr-m-abdelgawad/devctl/"))).toBe(true);
+    expect(WEB_INDEX_HTML).toContain("https://github.com/amr-m-abdelgawad/devctl/issues/new?template=bug.md");
+    expect(WEB_INDEX_HTML).toContain("https://github.com/amr-m-abdelgawad/devctl/discussions/new?category=ideas");
     expect(WEB_INDEX_HTML.toLowerCase().split("</script").length).toBe(2);
     expect(WEB_INDEX_HTML).toMatch(/rel="icon"/);
     expect(WEB_INDEX_HTML).toMatch(/data:image\/svg\+xml/);
