@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - The web console sidebar, and the navigation dialog on a narrow window, include **Feedback**. It opens GitHub to report a bug or share an idea. See [Web console](docs/web.md).
+- The TUI, web console, and docs site theme pickers add Claude Code (`claude-code`, terracotta on warm charcoal) and Claude Code Light (`claude-code-light`, warm parchment). `claude`, `claude code`, and `claude-dark` select the dark palette; `claude-light` selects the light one. The web console treats the two as a light/dark pair. See [Themes](docs/tui.md#themes).
+- The same pickers add SynthWave ’84 (`synthwave-84`), GitHub Light (`github-light`, paired with GitHub Dark), and Rosé Pine Dawn (`rose-pine-dawn`, paired with Rosé Pine). Aliases include `synthwave`, `github light`, and `dawn`. See [Themes](docs/tui.md#themes) and [Web console](docs/web.md#choose-a-color-theme).
 
 ### Changed
 
