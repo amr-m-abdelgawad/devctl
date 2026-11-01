@@ -21,7 +21,7 @@ const choices = THEME_NAMES.map(name => ({
   appearance: themeDefaultAppearance(name),
   tokens: webThemeTokens(name, themeDefaultAppearance(name)),
 }))
-const featured = ['devctl', 'tokyonight', 'catppuccin', 'nord', 'gruvbox', 'catppuccin-latte'] as const
+const featured = ['devctl', 'claude-code', 'claude-code-light', 'github-light', 'rose-pine-dawn', 'synthwave-84', 'tokyonight', 'catppuccin', 'nord', 'gruvbox', 'catppuccin-latte'] as const
 const filtered = computed(() => choices.filter(choice =>
   (appearance.value === 'all' || choice.appearance === appearance.value) &&
   `${choice.label} ${choice.name} ${choice.description}`.toLowerCase().includes(query.value.trim().toLowerCase()),

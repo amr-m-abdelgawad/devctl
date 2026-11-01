@@ -28,4 +28,12 @@ describe("inlineAssets", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("preserves repository navigation links while dropping library documentation URLs", () => {
+    const issue = "https://github.com/amr-m-abdelgawad/devctl/issues/new?template=bug.md";
+    const discussion = "https://github.com/amr-m-abdelgawad/devctl/discussions/new?category=ideas";
+    const html = `<script>const links = ["${issue}", "${discussion}", "https://react.dev/errors/1"];</script>`;
+    expect(inlineAssets(html, tmpdir())).toBe(`<script>const links = ["${issue}", "${discussion}", ""];</script>`);
+  });
+
 });

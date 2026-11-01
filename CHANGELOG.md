@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-11-01
+
+### Added
+
+- The web console sidebar, and the navigation dialog on a narrow window, include **Feedback**. It opens GitHub to report a bug or share an idea. See [Web console](docs/web.md).
+- The TUI, web console, and docs site theme pickers add Claude Code (`claude-code`, terracotta on warm charcoal) and Claude Code Light (`claude-code-light`, warm parchment). `claude`, `claude code`, and `claude-dark` select the dark palette; `claude-light` selects the light one. The web console treats the two as a light/dark pair. See [Themes](docs/tui.md#themes).
+- The same pickers add SynthWave ’84 (`synthwave-84`), GitHub Light (`github-light`, paired with GitHub Dark), and Rosé Pine Dawn (`rose-pine-dawn`, paired with Rosé Pine). Aliases include `synthwave`, `github light`, and `dawn`. See [Themes](docs/tui.md#themes) and [Web console](docs/web.md#choose-a-color-theme).
+
+### Changed
+
+- While Doctor is running, the web console and the TUI show an animated pixel ghost. The web page says **Running diagnostics…**, or **Refreshing diagnostics…** when a report is already on screen, and that report stays visible. The TUI panel is titled **environment diagnostics**. It names the check in progress, counts completed checks, warnings, and errors, and lists the latest results. See [Doctor](docs/doctor.md).
+
 ## [0.28.0] - 2026-11-01
 
 ### Changed
@@ -835,7 +847,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.1...HEAD
+[0.28.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.0...v0.28.1
 [0.28.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.25.0...v0.26.0

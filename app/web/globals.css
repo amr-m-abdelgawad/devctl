@@ -161,21 +161,35 @@
   }
 }
 
-/* Topology edges: a slow dash along healthy depends-on links. */
-@keyframes doctor-pulse {
-  50% {
-    opacity: 0.45;
-  }
+/* Pixel ghost inspired by BlackisPlay: https://uiverse.io/BlackisPlay/sweet-frog-67 */
+.doctor-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem 1rem;
 }
-.doctor-skeleton {
-  animation: doctor-pulse 1.4s ease-in-out infinite;
+.ghost-loader { overflow: visible; }
+.ghost-loader-body { animation: ghost-loader-bob 0.5s steps(1, end) infinite; }
+.ghost-loader-feet-a { animation: ghost-loader-feet 0.5s steps(1, end) infinite; }
+.ghost-loader-feet-b { animation: ghost-loader-feet 0.5s steps(1, end) infinite reverse; }
+.ghost-loader-pupils { animation: ghost-loader-look 3s steps(1, end) infinite; }
+.ghost-loader-shadow {
+  fill: var(--foreground);
+  opacity: 0.15;
+  filter: blur(0.4px);
+  animation: ghost-loader-shadow 0.5s steps(1, end) infinite;
 }
+@keyframes ghost-loader-bob { 50% { transform: translateY(-1px); } }
+@keyframes ghost-loader-feet { 50% { opacity: 0; } }
+@keyframes ghost-loader-look { 50% { transform: translateX(1px); } }
+@keyframes ghost-loader-shadow { 50% { opacity: 0.07; } }
 @media (prefers-reduced-motion: reduce) {
-  .doctor-skeleton {
-    animation: none;
-  }
+  .ghost-loader * { animation: none; }
+  .ghost-loader-feet-b { opacity: 0; }
 }
 
+/* Topology edges: a slow dash along healthy depends-on links. */
 @keyframes topology-dash {
   to {
     stroke-dashoffset: -28;
@@ -432,6 +446,66 @@ summary:focus-visible {
   font: 11px var(--font-mono);
   letter-spacing: 0.2px;
 }
+/* Expanding icon panel: https://uiverse.io/AKAspidey01/orange-donkey-78 */
+.sidebar-feedback {
+  flex-shrink: 0;
+  padding: 8px 16px 14px;
+}
+.feedback-trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.feedback-trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.feedback-icon-panel {
+  position: absolute;
+  inset: 4px auto 4px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  transition: width 400ms ease;
+}
+.feedback-icon-panel svg { width: 22px; height: 22px; }
+.feedback-trigger-copy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 32px;
+}
+.feedback-trigger-copy svg { width: 14px; height: 14px; }
+.feedback-trigger:is(:hover, :focus-visible, [data-state="open"]) .feedback-icon-panel {
+  width: calc(100% - 8px);
+}
+.feedback-trigger[data-compact="true"] {
+  width: 40px;
+  height: 40px;
+  margin-inline: auto;
+  border-radius: 12px;
+}
+.feedback-trigger[data-compact="true"] .feedback-icon-panel { width: 30px; }
+.feedback-trigger[data-compact="true"] .feedback-trigger-copy { display: none; }
+.console-collapsed .sidebar-feedback { padding-inline: 8px; }
+@media (prefers-reduced-motion: reduce) {
+  .feedback-icon-panel { transition: none; }
+}
+
 .sidebar-footer {
   display: flex;
   align-items: center;

@@ -6,6 +6,9 @@ const CACHE_KEY = "devctl.web.theme";
 export const THEME_CHANGED_EVENT = "devctl:theme-change";
 
 const PAIRS = [
+  ["github-dark", "github-light"],
+  ["rose-pine", "rose-pine-dawn"],
+  ["claude-code", "claude-code-light"],
   ["catppuccin", "catppuccin-latte"],
   ["solarized-dark", "solarized-light"],
   ["voltage", "voltage-light"],
@@ -134,12 +137,17 @@ export function themeLabel(name: string): string {
   const resolved = resolveThemeName(name);
   const labels: Partial<Record<ThemeName, string>> = {
     devctl: "devctl",
+    "claude-code": "Claude Code",
+    "claude-code-light": "Claude Code Light",
     tokyonight: "Tokyo Night",
     catppuccin: "Catppuccin Mocha",
     "catppuccin-latte": "Catppuccin Latte",
     onedark: "One Dark",
     "rose-pine": "Rosé Pine",
     "github-dark": "GitHub Dark",
+    "github-light": "GitHub Light",
+    "rose-pine-dawn": "Rosé Pine Dawn",
+    "synthwave-84": "SynthWave ’84",
   };
   return (
     labels[resolved] ??

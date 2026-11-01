@@ -237,11 +237,12 @@ Status is never color-only: `✓` healthy, `●` running, `!` warning, `✗` fai
 ![The theme picker with live preview — devctl (active), ember, tokyonight, catppuccin, nord, gruvbox, kanagawa, dracula and more](assets/manual/tui-themes.png)
 
 - Product: `devctl` (default), `ember`
-- Common dark: `tokyonight`, `catppuccin`, `nord`, `gruvbox`, `kanagawa`, `dracula`, `onedark`, `monokai`, `rose-pine`, `everforest`, `github-dark`, `iceberg`, `ayu-dark`, `oxocarbon`, `night-owl`
-- Light: `catppuccin-latte`, `solarized-light`
+- Claude Code: `claude-code` (terracotta + warm charcoal), `claude-code-light` (warm parchment); available in both TUI and web theme pickers
+- Common dark: `tokyonight`, `catppuccin`, `nord`, `gruvbox`, `kanagawa`, `dracula`, `onedark`, `monokai`, `synthwave-84`, `rose-pine`, `everforest`, `github-dark`, `iceberg`, `ayu-dark`, `oxocarbon`, `night-owl`
+- Light: `catppuccin-latte`, `solarized-light`, `github-light`, `rose-pine-dawn`
 - Other: `solarized-dark`, `terminal` (black + VGA ANSI chrome; aliases `ansi`, `xterm`, `console`), `system` (follows macOS `AppleInterfaceStyle` / `COLORFGBG`; light uses Solarized Light)
 
-Aliases: `mocha` → Catppuccin Mocha, `latte`, `one-dark`, `solarized` (dark), `rosepine`, `github`, `ayu`, `night owl`.
+Aliases: `claude` / `claude code` → Claude Code dark, `claude-light` → Claude Code Light, `mocha` → Catppuccin Mocha, `latte`, `one-dark`, `solarized` (dark), `rosepine`, `github`, `github light`, `dawn` / `rose pine dawn`, `synthwave` / `synthwave84`, `ayu`, `night owl`.
 
 MCP agent chips use brand colors (Claude terracotta, Cursor blue, Kilo gold, Codex green) with light/dark variants.
 

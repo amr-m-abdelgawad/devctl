@@ -22,6 +22,19 @@ describe("themes", () => {
     expect(hexLuminance(paletteFor("terminal").highlight)).toBeGreaterThan(hexLuminance(paletteFor("terminal").element) + 20);
     expect(resolveThemeName("not-a-theme")).toBe("devctl");
     expect(resolveThemeName("opencode")).toBe("ember");
+    expect(resolveThemeName("claude")).toBe("claude-code");
+    expect(resolveThemeName("Claude Code")).toBe("claude-code");
+    expect(resolveThemeName("claude-light")).toBe("claude-code-light");
+    expect(resolveThemeName("GitHub Light")).toBe("github-light");
+    expect(resolveThemeName("Rosé Pine Dawn")).toBe("rose-pine-dawn");
+    expect(resolveThemeName("dawn")).toBe("rose-pine-dawn");
+    expect(resolveThemeName("SynthWave ’84")).toBe("synthwave-84");
+    expect(resolveThemeName("synthwave")).toBe("synthwave-84");
+    expect(isLightPalette(paletteFor("github-light"))).toBe(true);
+    expect(isLightPalette(paletteFor("rose-pine-dawn"))).toBe(true);
+    expect(isLightPalette(paletteFor("synthwave-84"))).toBe(false);
+    expect(isLightPalette(paletteFor("claude-code"))).toBe(false);
+    expect(isLightPalette(paletteFor("claude-code-light"))).toBe(true);
     expect(paletteFor("github").primary).toBe(paletteFor("github-dark").primary);
   });
 
