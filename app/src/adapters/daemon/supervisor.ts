@@ -1307,6 +1307,7 @@ export class Supervisor {
   private logFilter(req: LogFilter | LogsRequest): LogFilter {
     return {
       services: req.services,
+      excludeServices: req.excludeServices,
       level: req.level,
       levels: req.levels,
       hideHealth: req.hideHealth,

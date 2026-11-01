@@ -295,6 +295,7 @@ export function filterLogRows(
   events: LogRow[],
   opts: {
     service?: string;
+    excludeServices?: readonly string[];
     errorOnly?: boolean;
     levels?: readonly string[];
     hideHealth?: boolean;
@@ -311,6 +312,9 @@ export function filterLogRows(
   const matcher = searchMatcher(search, opts.regex === true);
   return events.filter((event) => {
     if (service !== "" && event.service !== service) {
+      return false;
+    }
+    if (opts.excludeServices?.includes(event.service)) {
       return false;
     }
     if (opts.showSystem === false && isSystemLog(event)) {
@@ -407,6 +411,11 @@ function spansForRegex(text: string, pattern: RegExp): LogSearchSpan[] {
   return spans;
 }
 
+/** Adds or removes one service. Keeps the list sorted, so its order does not change the query. */
+export function toggleListedService(excluded: readonly string[], name: string): string[] {
+  return excluded.includes(name) ? excluded.filter((item) => item !== name) : [...excluded, name].sort((a, b) => a.localeCompare(b));
+}
+
 export function facetServiceChips(
   facets: LogFacets | undefined,
   names: string[],
@@ -457,6 +466,7 @@ export function lastSeq(events: LogRow[]): number | undefined {
 
 export function liveLogsQuery(opts: {
   service?: string;
+  excludeServices?: readonly string[];
   errorOnly?: boolean;
   levels?: readonly string[];
   hideHealth?: boolean;
@@ -469,6 +479,9 @@ export function liveLogsQuery(opts: {
   const query: LogsQuery = {};
   if (opts.service) {
     query.service = opts.service;
+  }
+  if (opts.excludeServices && opts.excludeServices.length > 0) {
+    query.excludeServices = [...opts.excludeServices];
   }
   if (opts.levels && opts.levels.length > 0) {
     query.levels = [...opts.levels];
@@ -504,6 +517,7 @@ export function laterLogSince(configured?: string, cleared?: string): string | u
 export function logsQueryKey(query: LogsQuery): string {
   return JSON.stringify([
     query.service ?? "",
+    (query.excludeServices ?? []).join(","),
     query.level ?? "",
     (query.levels ?? []).join(","),
     query.hideHealth === true,
@@ -533,6 +547,9 @@ export function encodeLogsQuery(query: LogsQuery): Record<string, string> {
   if (query.dedupeRequestId) params.dedupe_request_id = "true";
   if (query.service) {
     params.service = query.service;
+  }
+  if (query.excludeServices && query.excludeServices.length > 0) {
+    params.exclude_services = query.excludeServices.join(",");
   }
   if (query.level) {
     params.level = query.level;

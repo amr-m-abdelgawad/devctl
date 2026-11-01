@@ -37,7 +37,7 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): boolean {
     setDoctorTick, refreshAuth, configScrollRef, detailScrollRef, handleEnter, setScreen,
     setChecked, setStatus, setSelected, setProfile, refresh,
     toggleChecked, createStarterConfig: _createStarterConfig, startWizard, setConfirmKind, setConfirmDetail, setOverlay, openConfigBuffer,
-    runCommand, openEnvPicker, toggleLlmBodyMode, toggleTrafficBodyMode, moveLlmCursor, moveTrafficCursor,
+    runCommand, openEnvPicker, openLogExclude, toggleLlmBodyMode, toggleTrafficBodyMode, moveLlmCursor, moveTrafficCursor,
   } = ctx;
 
   const onLogFilters = (screen === "logs" || screen === "dashboard") && !logSearchFocused;
@@ -47,6 +47,10 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): boolean {
   }
   if (onLogFilters && (name === "right" || name === "]" || (screen === "logs" && name === "l"))) {
     setLogService(cycleLogService(logSources, logService, 1));
+    return true;
+  }
+  if (onLogFilters && screen === "logs" && name === "x") {
+    openLogExclude();
     return true;
   }
   if ((screen === "dashboard" || screen === "setup") && name === "o") {

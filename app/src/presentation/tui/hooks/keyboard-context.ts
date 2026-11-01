@@ -88,6 +88,12 @@ export type KeyboardUi = {
   envIndex: number;
   setEnvIndex: Dispatch<SetStateAction<number>>;
   applyEnv: (name: string) => void;
+  openLogExclude: () => void;
+  logExcludeOptions: string[];
+  logExcludeIndex: number;
+  setLogExcludeIndex: Dispatch<SetStateAction<number>>;
+  toggleExcludedLogService: ReturnType<typeof useLogView>["toggleExcludedLogService"];
+  clearExcludedLogServices: ReturnType<typeof useLogView>["clearExcludedLogServices"];
   applyServiceEnv: (service: string, name: string, opts?: { restart?: boolean; confirmed?: boolean }) => void;
 };
 

@@ -76,6 +76,34 @@ export function severityNumberFromText(level: string): number {
   return SeverityUnspecified;
 }
 
+// The one-letter levels of glog and logcat, which only a severity_regex can reach.
+const LETTER_LEVELS: Record<string, number> = {
+  T: SeverityTrace,
+  D: SeverityDebug,
+  I: SeverityInfo,
+  W: SeverityWarn,
+  E: SeverityError,
+  F: SeverityFatal,
+};
+
+/**
+ * Level from a service's `logs.severity_regex`: the first capture of the first
+ * line that yields a known level. Undefined leaves the default classification.
+ */
+export function severityFromRule(rule: RegExp, text: string): number | undefined {
+  for (const line of text.split("\n")) {
+    const word = rule.exec(line)?.[1];
+    if (word === undefined) {
+      continue;
+    }
+    const level = LETTER_LEVELS[word.toUpperCase()] ?? severityNumberFromText(word);
+    if (level !== SeverityUnspecified) {
+      return level;
+    }
+  }
+  return undefined;
+}
+
 export function severityNumberFromUnknown(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return severityFromNumeric(value);

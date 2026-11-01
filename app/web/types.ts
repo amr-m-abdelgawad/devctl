@@ -248,6 +248,7 @@ export type LogsQuery = {
   limit?: number;
   hideGrpc?: boolean;
   hideSystem?: boolean;
+  excludeServices?: string[];
   requestId?: string;
   traceId?: string;
   attributeKey?: string;

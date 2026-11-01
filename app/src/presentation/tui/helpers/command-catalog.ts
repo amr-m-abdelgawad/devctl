@@ -184,6 +184,9 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
   if (overlay === "env") {
     return [COMMAND_FOOTER_HINT, { key: "↑↓", label: "move" }, { key: "enter", label: "switch" }, { key: "esc", label: "cancel" }];
   }
+  if (overlay === "log-exclude") {
+    return [COMMAND_FOOTER_HINT, { key: "↑↓", label: "move" }, { key: "space", label: "toggle" }, { key: "c", label: "clear" }, { key: "esc", label: "close" }];
+  }
   if (overlay === "help") {
     return [COMMAND_FOOTER_HINT, { key: "j/k", label: "scroll" }, { key: "esc", label: "close" }];
   }

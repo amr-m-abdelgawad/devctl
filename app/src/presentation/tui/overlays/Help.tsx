@@ -50,6 +50,7 @@ export function logBindings(copyKey: string): readonly Binding[] {
   return [
     { key: "←→", label: "filter services" },
     { key: "e", label: "ERROR+ only" },
+    { key: "x", label: "exclude services" },
     { key: "/levels", label: "choose levels (info,warn)" },
     { key: "/health", label: "hide health-check logs" },
     { key: "g", label: "jump to latest" },

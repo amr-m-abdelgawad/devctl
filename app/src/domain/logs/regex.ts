@@ -22,6 +22,25 @@ export function compileLogSearch(pattern: string): RegExp | undefined {
   return new RegExp(source);
 }
 
+/**
+ * A service's `logs.severity_regex`. It runs as written, because the rewrite
+ * for search drops capture groups, but it has to pass the same safety checks.
+ * Returns undefined unless the pattern is safe and captures something.
+ */
+export function compileSeverityRegex(pattern: string): RegExp | undefined {
+  // Search has no use for these two forms. A counted repeat is still a quantifier.
+  const vetted = pattern.replaceAll("(?:", "(").replace(/\{\d+(?:,\d*)?\}/g, "+");
+  if (rewriteLogRegex(vetted) === undefined) {
+    return undefined;
+  }
+  try {
+    const hasCapture = (new RegExp(`${pattern}|`).exec("")?.length ?? 0) > 1;
+    return hasCapture ? new RegExp(pattern) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function rewriteLogRegex(raw: string): string | undefined {
   if (raw.length === 0 || raw.length > MAX_LOG_SEARCH_REGEX) {
     return undefined;

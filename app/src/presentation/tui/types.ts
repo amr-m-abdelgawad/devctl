@@ -36,7 +36,8 @@ export type Overlay =
   | "setup-wizard"
   | "trace"
   | "span-details"
-  | "env";
+  | "env"
+  | "log-exclude";
 
 export type LifecycleKind = "start" | "stop" | "restart";
 

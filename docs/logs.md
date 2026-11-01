@@ -10,6 +10,18 @@ ANSI color codes are stripped before severity classification and structured pars
 
 A plain-text line takes the level it states: a level near the start, after any timestamp, bracketed tag, or logger name (`2026-11-01T08:11:44Z  WARN worker: …`, `[warn] …`, `INFO: …`), or a `level=`, `lvl=`, `severity=`, or `loglevel=` field on a logfmt line. Words later in the message do not raise it, so `WARN retried error=timeout` is WARN. A line that states no level is classified by keywords anywhere in it, such as `connection error`. On an `INFO: … "GET /x HTTP/1.1" 500 Internal Server Error` access line the status text still counts, so that line is ERROR.
 
+Optional `services.<name>.logs.severity_regex` reads the level from a format devctl does not recognise. Its first capture group holds the level:
+
+```yaml
+services:
+  api:
+    logs:
+      stdout: true
+      severity_regex: 'production\.(\w+):'
+```
+
+A stdout or stderr line that matches takes the captured level, ahead of every other rule, including a JSON `level` field. It accepts level names in any case (`WARN`, `warning`, `NOTICE`, `panic`) and the one-letter levels `T` `D` `I` `W` `E` `F`, so `'^([IWEF])\d{4} '` reads glog. A line that does not match, or captures any other word, is classified as usual. In a folded event the first line that yields a level decides. `devctl config validate` rejects a pattern that does not compile, has no capture group, nests quantifiers, or uses lookaround. Logs already stored keep their levels.
+
 Process `stdout`/`stderr` can fold several physical lines into one event. Python tracebacks (`Traceback (most recent call last):` plus indented frames and the exception line) and a bare HTTP status continuation (`             200`) are always folded. Optional `services.<name>.logs.multiline` adds start/continuation regexes:
 
 ```yaml

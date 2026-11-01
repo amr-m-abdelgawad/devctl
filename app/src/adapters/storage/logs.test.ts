@@ -805,6 +805,77 @@ describe("LogManager process multiline folding", () => {
   });
 });
 
+describe("LogManager severity_regex", () => {
+  const manager = (severity_regex: string): LogManager => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "severity-rule", 0, 0);
+    mgr.setServiceLogs({ api: { stdout: true, stderr: true, severity_regex } });
+    return mgr;
+  };
+  const emit = (mgr: LogManager, message: string, service = "api", source = "stdout"): void => {
+    mgr.append({ timestamp: "2026-11-01T00:00:00.000Z", service, source, level: "", message, pid: 1 });
+  };
+  const levels = async (mgr: LogManager): Promise<string[]> => {
+    await mgr.flush();
+    return mgr.query({}).map((event) => event.severityText ?? "");
+  };
+
+  test("reads the level a built-in rule cannot, in any case and as a letter", async () => {
+    const mgr = manager("^\\[[^\\]]*\\] production\\.(\\w+):");
+    emit(mgr, "[2026-11-01 08:11:44] production.WARNING: job error");
+    emit(mgr, "[2026-11-01 08:11:45] production.notice: failed");
+    expect(await levels(mgr)).toEqual(["WARN", "INFO"]);
+    const glog = manager("^([IWEF])\\d{4} ");
+    emit(glog, "W1101 08:11:44.640 worker.go:9] job error");
+    emit(glog, "\x1b[31mE1101 08:11:45.000 worker.go:9] ok\x1b[0m");
+    expect(await levels(glog)).toEqual(["WARN", "ERROR"]);
+  });
+
+  test("beats a JSON level", async () => {
+    const mgr = manager('"lvl":"(\\w+)"');
+    emit(mgr, '{"level":"error","lvl":"warn","msg":"retry"}');
+    expect(await levels(mgr)).toEqual(["WARN"]);
+  });
+
+  test("leaves a line it cannot read to the default rules", async () => {
+    const mgr = manager("^level (\\w+)");
+    emit(mgr, "connection error");
+    emit(mgr, "level whatever: WARN retry");
+    expect(await levels(mgr)).toEqual(["ERROR", "WARN"]);
+  });
+
+  test("applies to one service's process output only", async () => {
+    const mgr = manager("^(\\w+) ");
+    emit(mgr, "debug build failed with an error", "web");
+    expect(await levels(mgr)).toEqual(["ERROR"]);
+    const probes = manager("^(\\w+) ");
+    emit(probes, "debug from a health probe failed with an error", "api", "health");
+    expect(await levels(probes)).toEqual(["ERROR"]);
+  });
+
+  test("a folded event takes the first line that yields a level", async () => {
+    const mgr = manager("^\\s+level=(\\w+)");
+    mgr.setServiceLogs({ api: { stdout: true, stderr: true, severity_regex: "^\\s+level=(\\w+)", multiline: { continuation: "^\\s+" } } });
+    emit(mgr, "ERROR first");
+    emit(mgr, "  level=debug detail");
+    emit(mgr, "  level=warn detail");
+    expect(await levels(mgr)).toEqual(["DEBUG"]);
+  });
+});
+
+describe("LogManager excludeServices", () => {
+  test("drops those services from queries and facets, and keeps them in byService", async () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "exclude", 0, 0);
+    for (const service of ["api", "web", "worker", "api"]) {
+      mgr.append({ timestamp: "2026-11-01T00:00:00.000Z", service, source: "stdout", level: "", message: `INFO ${service}`, pid: 1 });
+    }
+    await mgr.flush();
+    const filter = { excludeServices: ["api", "worker"] };
+    expect(mgr.query(filter).map((event) => event.service)).toEqual(["web"]);
+    expect(mgr.queryFacets(filter)).toMatchObject({ total: 1, byService: { api: 2, web: 1, worker: 1 }, byLevel: { INFO: 1 } });
+    expect(mgr.query({ services: ["api", "web"], excludeServices: ["api"] }).map((event) => event.service)).toEqual(["web"]);
+  });
+});
+
 describe("LogManager dedupe_access_line", () => {
   test("remembers the last line of a bounded number of processes, the most recent ones", () => {
     const mgr = new LogManager(5_000, undefined, new Detector([], []), false, tmp(), "pair-bound", 0, 0);

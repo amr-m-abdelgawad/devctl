@@ -24,6 +24,7 @@ import type { ServiceLogConfig } from "../../domain/config/types.ts";
 import {
   buildLogRecord,
   clampLogPageSize,
+  compileSeverityRegex,
   createLogMatcher,
   createSearchMatcher,
   decodeLogCursor,
@@ -36,8 +37,11 @@ import {
   MultilineAssembler,
   parseLogLine,
   redactLogRecord,
+  severityFromRule,
+  severityTextFromNumber,
   shouldDropAccessLine,
   SeverityUnspecified,
+  stripAnsi,
   truncateLogLine,
   type FoldedLog,
   type LogFacets,
@@ -75,6 +79,9 @@ function foldStreamKey(key: PipelineStreamKey): string {
 function withoutFilterDimension(filter: LogFilter, dimension: "services" | "level" | "source"): LogFilter {
   if (dimension === "level") {
     return { ...filter, level: undefined, levels: undefined };
+  }
+  if (dimension === "services") {
+    return { ...filter, services: undefined, excludeServices: undefined };
   }
   return { ...filter, [dimension]: undefined };
 }
@@ -123,6 +130,7 @@ export class LogManager {
   private parsers: LogParser[] = [];
   private readonly assembler = new MultilineAssembler();
   private serviceLogs = new Map<string, ServiceLogConfig>();
+  private severityRules = new Map<string, RegExp>();
   private lastByServicePid = new Map<string, LogRecord>();
   private readonly hopWindow = new ProxyHopWindow();
   private idleTimer?: ReturnType<typeof setTimeout>;
@@ -264,7 +272,8 @@ export class LogManager {
   }
 
   private replayRecord(line: ReplayLine, seq: number): LogRecord {
-    const built = buildLogRecord(outputLineIngest(line), this.parseLine(truncateLogLine(line.line)), seq);
+    const text = truncateLogLine(line.line);
+    const built = buildLogRecord(this.withSeverityRule(outputLineIngest(line), text), this.parseLine(text), seq);
     return this.detector ? redactLogRecord(this.detector, built) : built;
   }
 
@@ -296,6 +305,13 @@ export class LogManager {
 
   setServiceLogs(logs: Record<string, ServiceLogConfig>): void {
     this.serviceLogs = new Map(Object.entries(logs));
+    this.severityRules = new Map();
+    for (const [service, config] of this.serviceLogs) {
+      const rule = compileSeverityRegex(config.severity_regex ?? "");
+      if (rule) {
+        this.severityRules.set(service, rule);
+      }
+    }
   }
 
   setOnRecord(handler: ((event: LogRecord) => void) | undefined): void {
@@ -412,6 +428,17 @@ export class LogManager {
     return this.writer?.loss ?? 0;
   }
 
+
+  // A service's own regex beats every other way of finding the level, so it
+  // sets the ingest severity, which a parsed or folded level cannot override.
+  private withSeverityRule(ev: LogIngest, line: string): LogIngest {
+    const rule = this.severityRules.get(ev.service);
+    if (!rule || !shouldFoldProcessLine(ev)) {
+      return ev;
+    }
+    const severityNumber = severityFromRule(rule, stripAnsi(line));
+    return severityNumber === undefined ? ev : { ...ev, severityNumber, severityText: severityTextFromNumber(severityNumber) };
+  }
 
   private parseLine(line: string): ParsedLog {
     let out: ParsedLog = parseLogLine(line);
@@ -590,7 +617,7 @@ export class LogManager {
     const skipParse = ev.body !== undefined || ev.source === "otlp";
     const line = truncateLogLine(ev.message ?? (typeof ev.body === "string" ? ev.body : ""));
     const parsed = skipParse ? ingestAsParsed(ev) : this.parseLine(line);
-    const built = buildLogRecord(ev, parsed, this.nextSeq);
+    const built = buildLogRecord(skipParse ? ev : this.withSeverityRule(ev, line), parsed, this.nextSeq);
     const redacted = this.detector ? redactLogRecord(this.detector, built) : built;
     this.expireCorrelate(atMs);
     const next = this.hopWindow.attach(redacted, atMs);

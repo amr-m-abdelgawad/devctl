@@ -28,7 +28,7 @@ const COMMAND_LOCK_MS = 50;
 type Options = {
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart">;
   diagnostics: Pick<ReturnType<typeof useDiagnostics>, "refreshAuth" | "setGoogle">;
-  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "setLogLevels" | "toggleHideHealthLogs" | "hideHealthLogs" | "logLevels" | "toggleSystemLogs" | "toggleGrpcLogs" | "showGrpcLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "showHistory" | "setLogs" | "setLogSearch" | "toggleSplitLogs">;
+  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "setLogLevels" | "toggleHideHealthLogs" | "hideHealthLogs" | "excludedLogServices" | "toggleExcludedLogService" | "clearExcludedLogServices" | "logLevels" | "toggleSystemLogs" | "toggleGrpcLogs" | "showGrpcLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "showHistory" | "setLogs" | "setLogSearch" | "toggleSplitLogs">;
   llmView: Pick<ReturnType<typeof useLlmView>, "setCaller">;
   trafficView: Pick<ReturnType<typeof useTrafficView>, "setCaller">;
   workspace: Pick<TuiWorkspace, "loginGoogle" | "detectGoogle" | "logoutGoogle" | "bootstrapLogPath" | "fileExists" | "readTextFile" | "writeTextFile" | "validateConfigText" | "resolveExportPath" | "writeLogExport" | "exportsDir" | "openInFileManager" | "listSessions" | "loadSessionTail" | "checkUpdate" | "applyUpdate" | "formatUpdateStatus">;
@@ -54,6 +54,7 @@ type Options = {
   setReveal: Dispatch<SetStateAction<boolean>>;
   resolveEnvironment: (service: string) => Promise<void>;
   openEnvPicker: (service?: string) => void;
+  openLogExclude: () => void;
   applyEnv: (service: string, name: string) => void;
   openDetail: (name: string) => void;
   copySelection: () => Promise<void>;
@@ -88,6 +89,7 @@ export function useCommandDispatcher({
   setReveal,
   resolveEnvironment,
   openEnvPicker,
+  openLogExclude,
   applyEnv,
   openDetail,
   copySelection,
@@ -132,6 +134,9 @@ export function useCommandDispatcher({
     setLogLevels,
     toggleHideHealthLogs,
     hideHealthLogs,
+    excludedLogServices,
+    toggleExcludedLogService,
+    clearExcludedLogServices,
     logLevels,
     toggleSystemLogs,
     toggleGrpcLogs,
@@ -542,6 +547,17 @@ export function useCommandDispatcher({
             setStatus(hideHealthLogs ? "Showing health-check logs" : "Hiding health-check logs");
             setScreen("logs");
             return;
+          case "exclude":
+            if (args.length === 0) {
+              openLogExclude();
+            } else if (args.length === 1 && args[0] === "clear") {
+              clearExcludedLogServices();
+              setStatus("Showing all services in logs");
+            } else {
+              args.forEach(toggleExcludedLogService);
+            }
+            setScreen("logs");
+            return;
           case "system":
             toggleSystemLogs();
             setScreen("logs");
@@ -574,6 +590,7 @@ export function useCommandDispatcher({
               await controller.logs({
                 export: dest,
                 services: logServices,
+                excludeServices: excludedLogServices,
                 level: logLevels.length > 0 ? "" : logLevel,
                 levels: logLevels.length > 0 ? logLevels : undefined,
                 hideHealth: hideHealthLogs ? true : undefined,
@@ -650,7 +667,7 @@ export function useCommandDispatcher({
         }, COMMAND_LOCK_MS);
       }
     },
-    [applyEnv, beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, filteredLogs, hideHealthLogs, llmView, loadSessionTail, logLevel, logLevels, logRegex, logSearch, logServices, logSource, logWrap, onDown, onNotifyAction, onUpdateApplied, onUpdateCheck, openConfigBuffer, openDetail, openEnvPicker, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogLevels, setLogSearch, setSlashPicker, showGrpcLogs, showHistory, themeName, toggleGrpcLogs, toggleHideHealthLogs, toggleSplitLogs, toggleSystemLogs, trafficView],
+    [applyEnv, beginRestart, beginStart, beginStop, checked, cfg, clearExcludedLogServices, clearLogs, openLogExclude, toggleExcludedLogService, controller, copySelection, excludedLogServices, filteredLogs, hideHealthLogs, llmView, loadSessionTail, logLevel, logLevels, logRegex, logSearch, logServices, logSource, logWrap, onDown, onNotifyAction, onUpdateApplied, onUpdateCheck, openConfigBuffer, openDetail, openEnvPicker, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogLevels, setLogSearch, setSlashPicker, showGrpcLogs, showHistory, themeName, toggleGrpcLogs, toggleHideHealthLogs, toggleSplitLogs, toggleSystemLogs, trafficView],
   );
   return { runCommand };
 }

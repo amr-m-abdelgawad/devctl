@@ -1337,4 +1337,19 @@ describe("config validate", () => {
     cfg.services.api!.logs.dedupe_access_line = true;
     expect(validate(cfg)).not.toContain("services.api.logs.dedupe_access_line must be a boolean");
   });
+
+  test("rejects logs.severity_regex unless it is a safe pattern with a capture group", () => {
+    const rejected = "services.api.logs.severity_regex must be a valid regular expression with a capture group for the level and no nested quantifiers";
+    const cfg = withService("api");
+    for (const pattern of ["(", "no group", "(?:only) non-capturing", "(a+)+b"]) {
+      cfg.services.api!.logs.severity_regex = pattern;
+      expect(validate(cfg), pattern).toContain(rejected);
+    }
+    for (const pattern of ["", "^([IWEF])\\d{4} ", "production\\.(\\w+):", "^(?:\\S+) (\\w+)"]) {
+      cfg.services.api!.logs.severity_regex = pattern;
+      expect(validate(cfg), pattern).not.toContain(rejected);
+    }
+    cfg.services.api!.logs.severity_regex = 3 as unknown as string;
+    expect(validate(cfg)).toContain("services.api.logs.severity_regex must be a string");
+  });
 });
