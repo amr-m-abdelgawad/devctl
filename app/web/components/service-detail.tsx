@@ -21,8 +21,9 @@ export function ServiceDetail(props: {
   busy: boolean;
   onControl: RunControl;
   onClose: () => void;
+  onOpenService?: (name: string) => void;
 }) {
-  const { name, row, config, busy, onControl, onClose } = props;
+  const { name, row, config, busy, onControl, onClose, onOpenService } = props;
   const [detail, setDetail] = useState<Detail>();
   const [error, setError] = useState("");
   const { requestRestart, banner } = useCascadeRestart(config, onControl, busy);
@@ -106,7 +107,16 @@ export function ServiceDetail(props: {
                   {definition?.dependencies.length
                     ? definition.dependencies.map((dep) => {
                         const target = typeof dep === "string" ? dep : dep.service;
-                        return (
+                        return onOpenService ? (
+                          <button
+                            key={target}
+                            type="button"
+                            className="mr-3 text-primary hover:underline"
+                            onClick={() => onOpenService(target)}
+                          >
+                            {target}
+                          </button>
+                        ) : (
                           <a key={target} className="mr-3 text-primary hover:underline" href={hrefFor("services", target)}>
                             {target}
                           </a>

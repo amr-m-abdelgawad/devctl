@@ -693,6 +693,7 @@ export function App() {
                 profiles={profiles}
                 tasks={config?.tasks ?? []}
                 services={services}
+                configServices={config?.services ?? []}
                 profile={status?.profile || ""}
                 busy={Boolean(busy)}
                 onControl={runControl}
