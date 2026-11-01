@@ -5,6 +5,7 @@ import {
   countNewerThan,
   encodeLogsQuery,
   exportFilename,
+  toggleListedService,
   INITIAL_LOG_PAGE_LIMIT,
   liveLogsQuery,
   followPollDelay,
@@ -327,4 +328,23 @@ test("correlation and system filters reach server queries and invalidate the pag
   });
   expect(liveLogsQuery({ showSystem: false })).toEqual({ hideSystem: true });
   for (const key of Object.keys(query)) expect(logsQueryKey(query)).not.toBe(logsQueryKey({ ...query, [key]: undefined }));
+});
+
+describe("excluded services", () => {
+  test("travel in the query and its key", () => {
+    const query = liveLogsQuery({ excludeServices: ["api", "web"] });
+    expect(encodeLogsQuery(query).exclude_services).toBe("api,web");
+    expect(logsQueryKey(query)).not.toBe(logsQueryKey(liveLogsQuery({})));
+    expect(liveLogsQuery({ excludeServices: [] }).excludeServices).toBeUndefined();
+  });
+
+  test("leave the rows on screen", () => {
+    const rows = ["api", "web"].map((service, index) => ({ seq: index + 1, service, source: "stdout", message: "m", level: "INFO", timestamp: "2026-11-01T00:00:00.000Z" }));
+    expect(filterLogRows(rows as never, { excludeServices: ["api"] }).map((row) => row.service)).toEqual(["web"]);
+  });
+
+  test("toggle in sorted order, so the same set makes the same query", () => {
+    expect(toggleListedService(toggleListedService([], "web"), "api")).toEqual(["api", "web"]);
+    expect(toggleListedService(["api", "web"], "api")).toEqual(["web"]);
+  });
 });

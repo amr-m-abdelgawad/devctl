@@ -43,6 +43,8 @@ export function LogsScreen(props: {
   onToggleLevel?: (level: string) => void;
   onClearLevels?: () => void;
   onToggleHealth?: () => void;
+  excludedLogServices?: readonly string[];
+  onExclude?: () => void;
   onToggleGrpc: () => void;
   onSelect?: (index: number) => void;
   onLeaveLatest?: () => void;
@@ -83,6 +85,8 @@ export function LogsScreen(props: {
     onToggleLevel,
     onClearLevels,
     onToggleHealth,
+    excludedLogServices,
+    onExclude,
     onToggleGrpc,
     onSelect,
     wrapMode = "all",
@@ -116,6 +120,7 @@ export function LogsScreen(props: {
   const filtered = filterLogs(logs, {
     service,
     services: props.services,
+    excludeServices: excludedLogServices,
     errorOnly,
     levels: logLevels,
     hideHealth: hideHealthLogs,
@@ -183,6 +188,8 @@ export function LogsScreen(props: {
             onToggleLevel={onToggleLevel}
             onClearLevels={onClearLevels}
             onToggleHealth={onToggleHealth}
+            excludedLogServices={excludedLogServices}
+            onExclude={onExclude}
             onToggleGrpc={onToggleGrpc}
             onSelect={onSelect}
             onLeaveLatest={onLeaveLatest}
@@ -219,6 +226,8 @@ export function LogsScreen(props: {
             onToggleLevel={onToggleLevel}
             onClearLevels={onClearLevels}
             onToggleHealth={onToggleHealth}
+            excludedLogServices={excludedLogServices}
+            onExclude={onExclude}
             onToggleGrpc={onToggleGrpc}
             onSelect={onSelectB}
             onLeaveLatest={onLeaveLatestB}
@@ -250,6 +259,8 @@ export function LogsScreen(props: {
             onToggleLevel={onToggleLevel}
             onClearLevels={onClearLevels}
             onToggleHealth={onToggleHealth}
+            excludedCount={excludedLogServices?.length}
+            onExclude={onExclude}
             onToggleGrpc={onToggleGrpc}
             showGrpc={showGrpcLogs}
             facets={facets}
@@ -356,6 +367,8 @@ function SplitLogPane(props: {
   onToggleLevel?: (level: string) => void;
   onClearLevels?: () => void;
   onToggleHealth?: () => void;
+  excludedLogServices?: readonly string[];
+  onExclude?: () => void;
   onToggleGrpc: () => void;
   onSelect?: (index: number) => void;
   onLeaveLatest?: () => void;
@@ -400,6 +413,8 @@ function SplitLogPane(props: {
           props.onFocus();
           props.onToggleGrpc();
         }}
+        excludedCount={props.excludedLogServices?.length}
+        onExclude={props.onExclude}
         showGrpc={props.showGrpcLogs}
         facets={props.facets}
       />

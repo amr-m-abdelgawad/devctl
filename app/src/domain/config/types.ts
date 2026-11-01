@@ -80,6 +80,7 @@ export type ServiceLogConfig = {
   stderr: boolean;
   multiline?: ServiceLogMultilineConfig;
   dedupe_access_line?: boolean;
+  severity_regex?: string;
 };
 
 export type RestartConfig = {

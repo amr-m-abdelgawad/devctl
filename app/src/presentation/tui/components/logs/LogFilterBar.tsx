@@ -24,6 +24,7 @@ export function LogFilterBar(props: {
   levels?: readonly string[];
   hideHealth?: boolean;
   showGrpc?: boolean;
+  excludedCount?: number;
   width: number;
   onService: (service: string) => void;
   onToggleErrors: () => void;
@@ -31,6 +32,7 @@ export function LogFilterBar(props: {
   onClearLevels?: () => void;
   onToggleHealth?: () => void;
   onToggleGrpc?: () => void;
+  onExclude?: () => void;
   facets?: LogFacets;
 }) {
   const {
@@ -42,6 +44,7 @@ export function LogFilterBar(props: {
     levels = [],
     hideHealth = false,
     showGrpc = true,
+    excludedCount = 0,
     width,
     onService,
     onToggleErrors,
@@ -49,6 +52,7 @@ export function LogFilterBar(props: {
     onClearLevels,
     onToggleHealth,
     onToggleGrpc,
+    onExclude,
     facets,
   } = props;
   const sources = facets ? facetFilterCatalog(names, facets) : logFilterCatalog(names, logs);
@@ -65,9 +69,10 @@ export function LogFilterBar(props: {
   const levelLabel = errorOnly ? "ERROR+" : compact ? "lvls" : "all levels";
   const healthLabel = hideHealth ? (compact ? "nohlth" : "health hidden") : compact ? "hlth" : "health";
   const grpcLabel = showGrpc ? "grpc" : "no grpc";
+  const excludeLabel = excludedCount > 0 ? `excl ${excludedCount}` : compact ? "excl" : "exclude";
   const stripWidth = Math.max(
     tabChipWidth(items[active]?.label ?? "all"),
-    width - tabChipWidth(levelLabel) - tabChipWidth(healthLabel) - tabChipWidth(grpcLabel),
+    width - tabChipWidth(levelLabel) - tabChipWidth(healthLabel) - tabChipWidth(grpcLabel) - tabChipWidth(excludeLabel),
   );
   return (
     <Toolbar palette={palette} backgroundColor={palette.element}>
@@ -87,6 +92,12 @@ export function LogFilterBar(props: {
             }}
           />
         </box>
+        <Chip
+          palette={palette}
+          label={excludeLabel}
+          tone={excludedCount > 0 ? "warning" : "muted"}
+          onMouseDown={onExclude}
+        />
         <Chip
           palette={palette}
           label={healthLabel}

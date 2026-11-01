@@ -1006,6 +1006,33 @@ logs:
     expect(cfg.services.api?.logs.stderr).toBe(false);
   });
 
+  test("a modular service file can set logs.severity_regex without clobbering stdout", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-severity-regex-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    logs:
+      stdout: true
+`,
+    );
+    writeFile(
+      dir,
+      ".devctl/services/api.yaml",
+      `
+logs:
+  severity_regex: "^([IWEF])\\\\d{4} "
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.logs.severity_regex).toBe("^([IWEF])\\d{4} ");
+    expect(cfg.services.api?.logs.stdout).toBe(true);
+  });
+
   test("decodes optional logs.dedupe_access_line and leaves it omitted by default", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-dedupe-access-${Date.now()}`;
     writeFile(

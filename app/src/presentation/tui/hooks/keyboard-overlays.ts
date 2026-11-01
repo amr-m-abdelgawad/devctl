@@ -28,6 +28,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): OverlayKeyFa
     revertThemePreview, setPaletteIndex, setThemeName, paletteIndex, applyTheme, leaderTimer,
     setOverlay, runCommand, setConfigEditError, saveConfigBuffer, setSlashIndex, filtered,
     setQuery, slashIndex, submitSlash, advanceWizard, envOptions, envIndex, setEnvIndex, applyEnv,
+    logExcludeOptions, logExcludeIndex, setLogExcludeIndex, toggleExcludedLogService, clearExcludedLogServices,
   } = ctx;
   const name = (key.name ?? "").toLowerCase();
   if (overlay === "none") {
@@ -309,6 +310,35 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): OverlayKeyFa
       const option = envOptions[envIndex];
       if (option) {
         applyEnv(option.name);
+      }
+    }
+    return "handled";
+  }
+  if (overlay === "log-exclude") {
+    if (isCommandChord(key, tui)) {
+      openCommandOverlay(ctx);
+      return "handled";
+    }
+    if (name === "escape") {
+      closeOverlay();
+      return "handled";
+    }
+    if (name === "down" || name === "j") {
+      setLogExcludeIndex((i) => Math.min(i + 1, Math.max(0, logExcludeOptions.length - 1)));
+      return "handled";
+    }
+    if (name === "up" || name === "k") {
+      setLogExcludeIndex((i) => Math.max(0, i - 1));
+      return "handled";
+    }
+    if (name === "c") {
+      clearExcludedLogServices();
+      return "handled";
+    }
+    if (name === "space" || name === "return") {
+      const service = logExcludeOptions[logExcludeIndex];
+      if (service !== undefined) {
+        toggleExcludedLogService(service);
       }
     }
     return "handled";

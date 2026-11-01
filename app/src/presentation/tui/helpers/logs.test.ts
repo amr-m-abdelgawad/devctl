@@ -1,11 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { logRecord } from "../../../domain/logs/record.ts";
-import { logRowKey, prependOlderPage, trimLogBytes, tuiLogBytes, tuiLogCap } from "./logs.ts";
+import { filterLogs, logRowKey, prependOlderPage, trimLogBytes, tuiLogBytes, tuiLogCap } from "./logs.ts";
 
 const MIB = 1024 * 1024;
 
 const rows = (from: number, to: number, body = "") =>
   Array.from({ length: to - from + 1 }, (_, i) => logRecord({ seq: from + i, service: "api", message: body || `m${from + i}`, timestamp: "2026-01-01T00:00:00.000Z" }));
+
+describe("filterLogs excludeServices", () => {
+  test("hides those services, and an empty list hides nothing", () => {
+    const events = ["api", "web", "worker"].map((service, i) => logRecord({ seq: i + 1, service, message: "m" }));
+    expect(filterLogs(events, { excludeServices: ["api", "worker"] }).map((ev) => ev.service)).toEqual(["web"]);
+    expect(filterLogs(events, { excludeServices: [] })).toHaveLength(3);
+  });
+});
 
 describe("log row keys", () => {
   test("a new line leaves every shown row its key, so React keeps those rows", () => {

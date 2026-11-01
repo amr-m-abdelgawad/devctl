@@ -316,6 +316,9 @@ export function decodeServiceLogs(value: unknown): ServiceLogConfig {
   if (value.dedupe_access_line !== undefined) {
     logs.dedupe_access_line = value.dedupe_access_line as boolean;
   }
+  if (value.severity_regex !== undefined) {
+    logs.severity_regex = value.severity_regex as string;
+  }
   if (value.multiline !== undefined) {
     const multiline = decodeServiceLogMultiline(value.multiline);
     if (multiline) {

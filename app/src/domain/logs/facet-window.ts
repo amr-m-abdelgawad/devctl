@@ -54,14 +54,14 @@ export class FacetWindow {
    * Facets for a filter on service, level and source alone. As everywhere,
    * each breakdown ignores its own dimension and keeps the other two.
    */
-  facets(filter: Pick<LogFilter, "services" | "level" | "levels" | "source">): LogFacets {
+  facets(filter: Pick<LogFilter, "services" | "excludeServices" | "level" | "levels" | "source">): LogFacets {
     const services = filter.services !== undefined && filter.services.length > 0 ? new Set(filter.services) : undefined;
     const out: LogFacets = { total: 0, byService: {}, byLevel: {}, bySource: {} };
     for (const row of this.combinations) {
       if (row.count === 0) {
         continue;
       }
-      const inServices = services === undefined || services.has(row.service);
+      const inServices = (services === undefined || services.has(row.service)) && !filter.excludeServices?.includes(row.service);
       const inLevel = rowMatchesLevel(row, filter);
       const inSource = !filter.source || row.source === filter.source;
       if (inServices && inLevel && inSource) {

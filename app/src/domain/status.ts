@@ -50,6 +50,7 @@ export type LogsRequest = {
   dedupeRequestId?: boolean;
   hideGrpc?: boolean;
   hideSystem?: boolean;
+  excludeServices?: string[];
 };
 
 export type RouteSnapshot = {

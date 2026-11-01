@@ -593,6 +593,7 @@ export function filterLogs(
   opts: {
     service?: string;
     services?: string[];
+    excludeServices?: readonly string[];
     errorOnly?: boolean;
     levels?: readonly string[];
     hideHealth?: boolean;
@@ -631,6 +632,9 @@ export function filterLogs(
       return false;
     }
     if (service !== "" && ev.service !== service) {
+      return false;
+    }
+    if (opts.excludeServices?.includes(ev.service)) {
       return false;
     }
     if (source !== "" && ev.source !== source) {

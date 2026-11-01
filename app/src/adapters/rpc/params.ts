@@ -9,6 +9,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function asLogFilter(rec: Record<string, unknown>): LogFilter {
   return {
     services: asStringArray(rec.services),
+    excludeServices: asStringArray(rec.excludeServices),
     level: typeof rec.level === "string" ? rec.level : "",
     levels: normalizeLogLevels(rec.levels),
     hideHealth: rec.hideHealth === true || rec.hide_health === true || rec.hideHealth === "true" || rec.hide_health === "true",

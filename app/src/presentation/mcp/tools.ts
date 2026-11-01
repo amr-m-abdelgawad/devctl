@@ -838,6 +838,7 @@ function logFilterFromArgs(args: Record<string, unknown>): LogFilter {
   const attributeValue = argString(args, "attribute_value");
   return {
     services: service === "" ? [] : [service],
+    excludeServices: argString(args, "exclude_services").split(",").filter((name) => name !== ""),
     level: argString(args, "level"),
     levels: normalizeLogLevels(args.levels),
     hideHealth: argFlag(args.hide_health) || argFlag(args.hideHealth),

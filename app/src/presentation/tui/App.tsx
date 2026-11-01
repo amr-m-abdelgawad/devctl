@@ -41,6 +41,7 @@ import { EnvOverlay } from "./overlays/Env.tsx";
 import { HelpOverlay } from "./overlays/Help.tsx";
 import { LeaderOverlay } from "./overlays/Leader.tsx";
 import { LogDetailsOverlay } from "./overlays/LogDetails.tsx";
+import { LogExcludeOverlay } from "./overlays/LogExclude.tsx";
 import { LlmDetailsOverlay } from "./overlays/LlmDetails.tsx";
 import { TrafficDetailsOverlay } from "./overlays/TrafficDetails.tsx";
 import { PlanOverlay } from "./overlays/Plan.tsx";
@@ -138,6 +139,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   const lastExportPath = useRef("");
   const [confirmKind, setConfirmKind] = useState<ConfirmKind>("quit");
   const [envIndex, setEnvIndex] = useState(0);
+  const [logExcludeIndex, setLogExcludeIndex] = useState(0);
   const [envPickerService, setEnvPickerService] = useState("");
   const leaderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const interruptArmedAt = useRef(0);
@@ -225,6 +227,9 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     clearLogLevels,
     hideHealthLogs,
     toggleHideHealthLogs,
+    excludedLogServices,
+    toggleExcludedLogService,
+    clearExcludedLogServices,
     showSystemLogs,
     showGrpcLogs,
     toggleGrpcLogs,
@@ -367,6 +372,14 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   }, []);
 
   const focusedServiceName = screen === "detail" ? detailName : (names[listCursor] ?? "");
+  const logExcludeOptions = useMemo(
+    () => [...new Set([...logSources.filter((name) => name !== ""), ...excludedLogServices])],
+    [excludedLogServices, logSources],
+  );
+  const openLogExclude = useCallback(() => {
+    setLogExcludeIndex(0);
+    setOverlay("log-exclude");
+  }, []);
   const envOptions = useMemo(() => {
     const svc = cfg?.services[envPickerService];
     if (!svc) {
@@ -538,6 +551,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   const {
     runCommand,
   } = useCommandDispatcher({
+    openLogExclude,
     setOverlay,
     setQuery,
     setSlashPicker,
@@ -699,6 +713,12 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       envIndex,
       setEnvIndex,
       applyEnv: (name: string) => applyEnv(envPickerService, name),
+      openLogExclude,
+      logExcludeOptions,
+      logExcludeIndex,
+      setLogExcludeIndex,
+      toggleExcludedLogService,
+      clearExcludedLogServices,
       applyServiceEnv: applyEnv,
     },
     logView,
@@ -797,6 +817,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             onToggleLevel={toggleLogLevel}
             onClearLevels={clearLogLevels}
             onToggleHealth={toggleHideHealthLogs}
+            excludedLogServices={excludedLogServices}
+            onExclude={openLogExclude}
             onToggleGrpc={toggleGrpcLogs}
             onShowErrors={() => {
               setLogService("");
@@ -883,6 +905,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             onToggleLevel={toggleLogLevel}
             onClearLevels={clearLogLevels}
             onToggleHealth={toggleHideHealthLogs}
+            excludedLogServices={excludedLogServices}
+            onExclude={openLogExclude}
             onToggleGrpc={toggleGrpcLogs}
             source={logSource}
             regex={logRegex}
@@ -1065,6 +1089,18 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
           termH={height}
           onIndex={setEnvIndex}
           onPick={(name) => applyEnv(envPickerService, name)}
+        />
+      ) : null}
+      {overlay === "log-exclude" ? (
+        <LogExcludeOverlay
+          palette={palette}
+          options={logExcludeOptions}
+          excluded={excludedLogServices}
+          selected={logExcludeIndex}
+          termW={width}
+          termH={height}
+          onIndex={setLogExcludeIndex}
+          onToggle={toggleExcludedLogService}
         />
       ) : null}
       {overlay === "help" ? (

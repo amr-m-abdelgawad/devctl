@@ -55,6 +55,7 @@ import {
   namedPort,
   isReservedHttpOutput,
 } from "../../domain/config/types.ts";
+import { compileSeverityRegex } from "../../domain/logs/regex.ts";
 import { GRPC_OK_STATUS_MAX, GRPC_OK_STATUS_MIN } from "../../domain/proxy/grpc-ok.ts";
 
 const MAX_PORT = 65535;
@@ -244,6 +245,7 @@ function validateServiceLogs(prefix: string, logs: ServiceLogConfig): string[] {
   if (logs.dedupe_access_line !== undefined && typeof logs.dedupe_access_line !== "boolean") {
     issues.push(`${prefix}.logs.dedupe_access_line must be a boolean`);
   }
+  issues.push(...validateSeverityRegex(`${prefix}.logs.severity_regex`, logs.severity_regex));
   const multiline = logs.multiline;
   if (!multiline) {
     return issues;
@@ -269,6 +271,16 @@ function validateLogPattern(path: string, pattern: string | undefined): string[]
   } catch {
     return [`${path} is not a valid regular expression`];
   }
+}
+
+function validateSeverityRegex(path: string, pattern: unknown): string[] {
+  if (pattern === undefined || pattern === "") {
+    return [];
+  }
+  if (typeof pattern !== "string") {
+    return [`${path} must be a string`];
+  }
+  return compileSeverityRegex(pattern) ? [] : [`${path} must be a valid regular expression with a capture group for the level and no nested quantifiers`];
 }
 
 function validateHealth(

@@ -15,6 +15,9 @@ export function matchesLogDimensions(filter: LogFilter, ev: LogRecord): boolean 
   if (filter.services && filter.services.length > 0 && !filter.services.includes(ev.service)) {
     return false;
   }
+  if (filter.excludeServices?.includes(ev.service)) {
+    return false;
+  }
   if (filter.hideHealth === true && isHealthCheckLog(ev)) {
     return false;
   }
