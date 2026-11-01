@@ -42,5 +42,6 @@ export { CommandIcon } from "@phosphor-icons/react/dist/csr/Command";
 export { FileCodeIcon } from "@phosphor-icons/react/dist/csr/FileCode";
 export { BrowsersIcon } from "@phosphor-icons/react/dist/csr/Browsers";
 export { GithubLogoIcon } from "@phosphor-icons/react/dist/csr/GithubLogo";
+export { StarIcon } from "@phosphor-icons/react/dist/csr/Star";
 export { BugIcon } from "@phosphor-icons/react/dist/csr/Bug";
 export { LightbulbIcon } from "@phosphor-icons/react/dist/csr/Lightbulb";
