@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
+  <title id="title">devctl</title>
+  <desc id="desc">The devctl logo and name above the line "One terminal for your local stack." and a status bar in the style of the devctl TUI header.</desc>
+  <style>
+    text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .name { font-size: 92px; font-weight: 700; fill: #DEEEE5; }
+    .tagline { font-size: 34px; fill: #77ddba; }
+    .chip { font-size: 26px; font-weight: 600; fill: #15201D; }
+  </style>
+
+  <rect width="1200" height="320" fill="#15201D"/>
+  <rect x="1" y="1" width="1198" height="318" fill="none" stroke="#087568" stroke-width="2"/>
+
+  <!-- docs/public/logo.svg at 3x -->
+  <g transform="translate(378 34) scale(3)">
+    <rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="#18372f" stroke="#087568" stroke-width="1.5"/>
+    <path d="M8 11l5 5-5 5" fill="none" stroke="#77ddba" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="15.5" y="19.6" width="8.5" height="2.4" rx="1.2" fill="#77ddba"/>
+  </g>
+  <text class="name" x="490" y="114" textLength="332" lengthAdjust="spacingAndGlyphs">devctl</text>
+
+  <text class="tagline" x="600" y="192" text-anchor="middle" textLength="714" lengthAdjust="spacingAndGlyphs">One terminal for your local stack.</text>
+
+  <!-- Same chips as the TUI header: helpers/chrome.ts, colors from the devctl theme -->
+  <g>
+    <rect x="237" y="228" width="200" height="50" fill="#91D6A0"/>
+    <text class="chip" x="337" y="262" text-anchor="middle" textLength="172" lengthAdjust="spacingAndGlyphs">5/7 running</text>
+    <rect x="437" y="228" width="294" height="50" fill="#8EC8D8"/>
+    <text class="chip" x="584" y="262" text-anchor="middle" textLength="266" lengthAdjust="spacingAndGlyphs">● 127.0.0.1:18080</text>
+    <rect x="731" y="228" width="108" height="50" fill="#8EC8D8"/>
+    <text class="chip" x="785" y="262" text-anchor="middle" textLength="47" lengthAdjust="spacingAndGlyphs">MCP</text>
+    <rect x="839" y="228" width="124" height="50" fill="#91D6A0"/>
+    <text class="chip" x="901" y="262" text-anchor="middle" textLength="94" lengthAdjust="spacingAndGlyphs">ADC ok</text>
+  </g>
+</svg>

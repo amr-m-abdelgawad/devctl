@@ -1,8 +1,6 @@
 <div align="center">
 
-# devctl
-
-<video src="https://github.com/user-attachments/assets/eadb7ee1-43e8-4ba0-b0ee-1011448f36a8" controls muted width="900"></video>
+<h1><img src="docs/assets/readme/cover.svg" width="900" alt="devctl: one terminal for your local stack"></h1>
 
 **One terminal for your local stack.**
 
@@ -28,10 +26,7 @@ Start services, follow logs, trace requests, and inject cloud auth — from a ke
   <a href="examples/demo-platform/README.md">Demo</a>
 </p>
 
-<p><em>The TUI in action — dashboard, live filtered logs, distributed traces, and the proxy:</em></p>
-
-<video src="https://github.com/user-attachments/assets/7e924fe4-7fe4-49d3-924c-de76916c3a13" controls muted width="900"></video>
-
+<video src="https://github.com/user-attachments/assets/eadb7ee1-43e8-4ba0-b0ee-1011448f36a8" controls muted width="900"></video>
 
 </div>
 
@@ -40,6 +35,7 @@ Start services, follow logs, trace requests, and inject cloud auth — from a ke
 ## Contents
 
 - [Why devctl](#why-devctl)
+- [See it run](#see-it-run)
 - [Features](#features)
 - [Quick start](#quick-start)
 - [Install](#install)
@@ -61,6 +57,14 @@ What sets it apart:
 - **Handles the cloud auth you'd otherwise hand-roll.** A loopback proxy mints and injects Google / IAP tokens on both HTTP and gRPC, so local code reaches IAP-protected backends with no token logic of its own. Tokens never touch the logs.
 - **Structured logs and traces, built in.** Every log is an OpenTelemetry-shaped record; an opt-in OTLP receiver and per-request tracing let you follow a request across services — and let an agent debug it.
 - **One session, four ways in.** The TUI, the CLI, an MCP endpoint for your agent, and an opt-in loopback web console all drive the same supervisor — not four tools that each half-know the state.
+
+---
+
+## See it run
+
+The TUI in action — dashboard, live filtered logs, distributed traces, and the proxy:
+
+<video src="https://github.com/user-attachments/assets/7e924fe4-7fe4-49d3-924c-de76916c3a13" controls muted width="900"></video>
 
 ---
 
