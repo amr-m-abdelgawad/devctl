@@ -1,7 +1,9 @@
 import * as http2 from "node:http2";
 import type { ServerHttp2Stream } from "node:http2";
+import { createServer as createNetServer, connect as netConnect, type Socket } from "node:net";
 import { describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
+import type { UpstreamTiming } from "./grpc-upstream.ts";
 import { GrpcProxyServer, writeWithBackpressure } from "./grpc-proxy.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
 import { defaultConfig, emptyRouteAuth, type RouteConfig } from "../../domain/config/types.ts";
@@ -29,8 +31,12 @@ function tokens(accessToken = "ID-TOKEN"): TokenManager {
 
 // Upstream stand-in for Temporal: reflects the Authorization + identity-token it
 // received into response trailers, and branches on the gRPC method path.
-async function startUpstream(): Promise<{ url: string; close: () => Promise<void> }> {
+async function startUpstream(): Promise<{ url: string; close: () => Promise<void>; connections: () => number }> {
   const server = http2.createServer();
+  let connections = 0;
+  server.on("connection", () => {
+    connections += 1;
+  });
   server.on("stream", (raw, headers) => {
     const stream = raw as ServerHttp2Stream;
     const path = String(headers[":path"] ?? "");
@@ -57,7 +63,7 @@ async function startUpstream(): Promise<{ url: string; close: () => Promise<void
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   const port = (server.address() as { port: number }).port;
-  return { url: `http://127.0.0.1:${port}`, close: () => new Promise<void>((r) => server.close(() => r())) };
+  return { url: `http://127.0.0.1:${port}`, connections: () => connections, close: () => new Promise<void>((r) => server.close(() => r())) };
 }
 
 function memoryLogs(): { logs: Pick<LogStore, "append">; events: Array<{ level: string; message: string; attributes?: Record<string, unknown> }> } {
@@ -102,6 +108,68 @@ async function reservePort(): Promise<number> {
   const port = (s.address() as { port: number }).port;
   await new Promise<void>((r) => s.close(() => r()));
   return port;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Forwards bytes until drop(). After that the TCP connection stays open and
+// data is discarded, so the proxy sees an ESTABLISHED socket with no HTTP/2
+// PING acknowledgement. New connections still forward.
+function startSilentProxy(targetPort: number): Promise<{ port: number; drop: () => void; close: () => Promise<void> }> {
+  const links: Array<{ from: Socket; to: Socket; open: boolean }> = [];
+  const proxy = createNetServer((from) => {
+    const to = netConnect(targetPort, "127.0.0.1");
+    const link = { from, to, open: true };
+    links.push(link);
+    const tear = (): void => {
+      from.destroy();
+      to.destroy();
+    };
+    from.on("error", tear);
+    to.on("error", tear);
+    from.on("data", (chunk: Buffer) => {
+      if (link.open) to.write(chunk);
+    });
+    to.on("data", (chunk: Buffer) => {
+      if (link.open) from.write(chunk);
+    });
+  });
+  return new Promise((resolve) => {
+    proxy.listen(0, "127.0.0.1", () => {
+      const port = (proxy.address() as { port: number }).port;
+      resolve({
+        port,
+        drop() {
+          for (const link of links) link.open = false;
+        },
+        close: () => new Promise((done) => {
+          for (const link of links) {
+            link.from.destroy();
+            link.to.destroy();
+          }
+          proxy.close(() => done());
+        }),
+      });
+    });
+  });
+}
+
+// Each mint looks expired, so every RPC refetches. `dns` simulates oauth2.googleapis.com failing.
+function remintingTokens(gate: { dns: boolean }): TokenManager {
+  const provider: TokenProvider = {
+    name: "stub",
+    fetch: async () => {
+      if (gate.dns) {
+        const err = new Error("getaddrinfo EAI_AGAIN oauth2.googleapis.com") as NodeJS.ErrnoException;
+        err.code = "EAI_AGAIN";
+        throw err;
+      }
+      return { accessToken: "ID-TOKEN", tokenType: "Bearer", expiresAt: new Date(Date.now() + 1_000), audience: "", identity: "user", scopes: [] };
+    },
+  };
+  return new TokenManager(60_000, [provider], undefined, memoryStore());
 }
 
 // Stands in for the client's h2 stream when it can no longer take response
@@ -565,6 +633,182 @@ describe("GrpcProxyServer", () => {
     } finally {
       await server.stop();
       await up.close();
+    }
+  });
+
+  test("a later RPC opens a new upstream connection after the pooled one goes silent", async () => {
+    const up = await startUpstream();
+    const targetPort = Number(new URL(up.url).port);
+    const hole = await startSilentProxy(targetPort);
+    const port = await reservePort();
+    let now = Date.now();
+    const timing: UpstreamTiming = { pingIntervalMs: 30_000, pingTimeoutMs: 300, connectTimeoutMs: 1_000, now: () => now };
+    const server = new GrpcProxyServer(grpcRoute(`http://127.0.0.1:${hole.port}`, port), tokens(), undefined, undefined, undefined, undefined, undefined, timing);
+    await server.start();
+    try {
+      const first = await call(port, "/say.Hello", "a");
+      expect(first.grpcStatus).toBe("0");
+      expect(up.connections()).toBe(1);
+      hole.drop();
+      now += 30_000;
+      const started = Date.now();
+      const second = await call(port, "/say.Hello", "b");
+      expect(second.grpcStatus).toBe("0");
+      expect(second.body).toBe("b");
+      expect(Date.now() - started).toBeLessThan(3_000);
+      expect(up.connections()).toBeGreaterThanOrEqual(2);
+    } finally {
+      await server.stop();
+      await hole.close();
+      await up.close();
+    }
+  });
+
+  test("an in-flight RPC fails with UNAVAILABLE when the upstream stops answering", async () => {
+    let sawStream: () => void = () => {};
+    const seen = new Promise<void>((resolve) => {
+      sawStream = resolve;
+    });
+    const hang = http2.createServer();
+    hang.on("session", (session) => {
+      session.on("error", () => {});
+    });
+    hang.on("stream", (stream) => {
+      stream.on("error", () => {});
+      sawStream();
+    });
+    hang.on("connection", (socket) => socket.on("error", () => {}));
+    await new Promise<void>((resolve) => hang.listen(0, "127.0.0.1", () => resolve()));
+    const hangPort = (hang.address() as { port: number }).port;
+    const hole = await startSilentProxy(hangPort);
+    const port = await reservePort();
+    const timing: UpstreamTiming = { pingIntervalMs: 100, pingTimeoutMs: 300, connectTimeoutMs: 1_000 };
+    const { logs, events } = memoryLogs();
+    const server = new GrpcProxyServer(grpcRoute(`http://127.0.0.1:${hole.port}`, port), tokens(), logs, undefined, undefined, undefined, undefined, timing);
+    await server.start();
+    try {
+      const pending = call(port, "/hang", "x");
+      await seen;
+      hole.drop();
+      const started = Date.now();
+      const res = await pending;
+      expect(res.grpcStatus).toBe("14");
+      expect(Date.now() - started).toBeLessThan(3_000);
+      expect(server.stats().recent.some((row) => (row.error ?? "").includes("client closed"))).toBe(false);
+      expect(events.some((event) => event.level === "WARN" && event.message.includes("dropped"))).toBe(true);
+    } finally {
+      await server.stop();
+      await hole.close();
+      await new Promise<void>((resolve) => hang.close(() => resolve()));
+    }
+  });
+
+  test("a token-mint network error makes the next RPC replace a silent upstream", async () => {
+    const up = await startUpstream();
+    const hole = await startSilentProxy(Number(new URL(up.url).port));
+    const port = await reservePort();
+    const gate = { dns: false };
+    const timing: UpstreamTiming = { pingIntervalMs: 60_000, pingTimeoutMs: 300, connectTimeoutMs: 1_000 };
+    const server = new GrpcProxyServer(grpcRoute(`http://127.0.0.1:${hole.port}`, port), remintingTokens(gate), undefined, undefined, undefined, undefined, undefined, timing);
+    await server.start();
+    try {
+      expect((await call(port, "/say.Hello", "a")).grpcStatus).toBe("0");
+      expect(up.connections()).toBe(1);
+      hole.drop();
+      gate.dns = true;
+      const denied = await call(port, "/say.Hello", "b");
+      expect(denied.grpcStatus).toBe("16");
+      gate.dns = false;
+      const started = Date.now();
+      const recovered = await call(port, "/say.Hello", "c");
+      expect(recovered.grpcStatus).toBe("0");
+      expect(recovered.body).toBe("c");
+      expect(Date.now() - started).toBeLessThan(3_000);
+      expect(up.connections()).toBeGreaterThanOrEqual(2);
+    } finally {
+      await server.stop();
+      await hole.close();
+      await up.close();
+    }
+  });
+
+  test("a handshake that never finishes returns UNAVAILABLE", async () => {
+    const sink = createNetServer((socket) => {
+      socket.on("error", () => {});
+    });
+    await new Promise<void>((resolve) => sink.listen(0, "127.0.0.1", () => resolve()));
+    const sinkPort = (sink.address() as { port: number }).port;
+    const port = await reservePort();
+    const timing: UpstreamTiming = { connectTimeoutMs: 300, pingIntervalMs: 60_000, pingTimeoutMs: 300 };
+    const server = new GrpcProxyServer(grpcRoute(`http://127.0.0.1:${sinkPort}`, port), tokens(), undefined, undefined, undefined, undefined, undefined, timing);
+    await server.start();
+    try {
+      const started = Date.now();
+      const res = await call(port, "/say.Hello", "x");
+      expect(res.grpcStatus).toBe("14");
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(server.stats().recent[0]?.error).toContain("upstream connect timeout");
+    } finally {
+      await server.stop();
+      await new Promise<void>((resolve) => sink.close(() => resolve()));
+    }
+  });
+
+  test("a silent long-poll stays open while HTTP/2 PINGs are answered", async () => {
+    const delayed = http2.createServer();
+    delayed.on("stream", (raw) => {
+      const stream = raw as ServerHttp2Stream;
+      setTimeout(() => {
+        stream.respond({ ":status": 200, "content-type": "application/grpc", "grpc-status": "0" }, { endStream: true });
+      }, 500);
+    });
+    await new Promise<void>((resolve) => delayed.listen(0, "127.0.0.1", () => resolve()));
+    const delayedPort = (delayed.address() as { port: number }).port;
+    const port = await reservePort();
+    const timing: UpstreamTiming = { pingIntervalMs: 100, pingTimeoutMs: 400, connectTimeoutMs: 1_000 };
+    const server = new GrpcProxyServer(grpcRoute(`http://127.0.0.1:${delayedPort}`, port), tokens(), undefined, undefined, undefined, undefined, undefined, timing);
+    await server.start();
+    try {
+      const res = await call(port, "/slow-ok", "x");
+      expect(res.grpcStatus).toBe("0");
+      expect(server.stats().errors).toBe(0);
+    } finally {
+      await server.stop();
+      await new Promise<void>((resolve) => delayed.close(() => resolve()));
+    }
+  });
+
+  test("a client cancel leaves the upstream connection for the next RPC", async () => {
+    const up = http2.createServer();
+    let connections = 0;
+    up.on("connection", () => {
+      connections += 1;
+    });
+    up.on("stream", (raw, headers) => {
+      const stream = raw as ServerHttp2Stream;
+      if (String(headers[":path"] ?? "") === "/hang") return;
+      stream.respond({ ":status": 200, "content-type": "application/grpc", "grpc-status": "0" }, { endStream: true });
+    });
+    await new Promise<void>((resolve) => up.listen(0, "127.0.0.1", () => resolve()));
+    const upPort = (up.address() as { port: number }).port;
+    const port = await reservePort();
+    const server = new GrpcProxyServer(grpcRoute(`http://127.0.0.1:${upPort}`, port), tokens());
+    await server.start();
+    const client = http2.connect(`http://127.0.0.1:${port}`);
+    try {
+      const req = client.request({ ":method": "POST", ":path": "/hang", "content-type": "application/grpc" });
+      req.on("error", () => {});
+      req.end("x");
+      await delay(60);
+      req.close(http2.constants.NGHTTP2_CANCEL);
+      for (let i = 0; i < 50 && server.stats().total === 0; i += 1) await delay(20);
+      const res = await call(port, "/ok", "x");
+      expect(res.grpcStatus).toBe("0");
+      expect(connections).toBe(1);
+    } finally {
+      client.close();
+      await server.stop();
+      await new Promise<void>((resolve) => up.close(() => resolve()));
     }
   });
 });
