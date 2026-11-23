@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The documentation site loads at [devctl on GitHub Pages](https://amr-m-abdelgawad.github.io/Devctl/) after the repository was renamed to Devctl. Asset links had stayed on `/devctl/`, so the new address opened without its styles or scripts. [https://amr-m-abdelgawad.github.io/devctl/](https://amr-m-abdelgawad.github.io/devctl/) redirects to the new address.
+
 ## [0.28.2] - 2026-11-02
 
 ### Added
