@@ -10,6 +10,12 @@ const repoRoot = resolve(here, '../..')
 const repo = 'https://github.com/amr-m-abdelgawad/devctl'
 const blob = `${repo}/blob/main`
 
+// GitHub Pages mounts a project site at /<repository>/, and that path is
+// case-sensitive. The repository is Devctl, so the live site is /Devctl/.
+// The previous /devctl/ path is redirected by the user site's 404 page.
+// DOCS_BASE overrides this for a local preview (`DOCS_BASE=/devctl/`).
+const pagesBase = process.env.DOCS_BASE ?? '/Devctl/'
+
 // https://vitepress.dev/reference/site-config
 const siteConfig = withMermaid({
   title: 'devctl',
@@ -17,8 +23,9 @@ const siteConfig = withMermaid({
   description:
     'One terminal for your local stack. Start services, watch logs, check identity, and drive the proxy — from a keyboard-first TUI, the CLI, or an agent over MCP.',
 
-  // Project page: https://amr-m-abdelgawad.github.io/devctl/
-  base: '/devctl/',
+  // Project page: https://amr-m-abdelgawad.github.io/Devctl/
+  // The old URL https://amr-m-abdelgawad.github.io/devctl/ redirects here.
+  base: pagesBase,
   lang: 'en-US',
   cleanUrls: true,
   lastUpdated: true,
@@ -34,7 +41,7 @@ const siteConfig = withMermaid({
   head: [
     ['style', {}, siteThemeCss()],
     ['script', {}, siteThemeInit],
-    ['link', { rel: 'icon', href: '/devctl/favicon.svg', type: 'image/svg+xml' }],
+    ['link', { rel: 'icon', href: `${pagesBase}favicon.svg`, type: 'image/svg+xml' }],
     ['meta', { name: 'theme-color', content: '#087568' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'devctl — One terminal for your local stack' }],
