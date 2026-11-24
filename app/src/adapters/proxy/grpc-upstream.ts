@@ -220,8 +220,14 @@ function awaitConnected(pooled: PooledSession, timeoutMs: number, onReady: () =>
     };
     session.on("error", (err: unknown) => {
       const error = err instanceof Error ? err : new Error("upstream connection error");
-      if (!settled) fail(error);
-      else pooled.drop(error.message || "upstream connection error");
+      if (!settled) {
+        fail(error);
+        return;
+      }
+      // Windows reports a single cancelled stream as ECONNRESET on the session.
+      // The connection is still usable; tearing it down RSTs the peer.
+      if (pooled.noteStreamReset(error)) return;
+      pooled.drop(error.message || "upstream connection error");
     });
     session.on("close", () => {
       if (!settled) fail(new Error("upstream connection closed"));
@@ -310,6 +316,16 @@ class PooledSession {
     if (!this.removed) this.suspect = true;
   }
 
+  // A reset of one stream, reported as ECONNRESET or EPIPE, is not proof the
+  // connection died. Remember it and let the next RPC probe. A session that
+  // has already closed still needs to be dropped by the caller.
+  noteStreamReset(err: unknown): boolean {
+    if (!this.connected || this.removed || this.session.closed || this.session.destroyed) return false;
+    if (!isStreamReset(err)) return false;
+    this.markSuspect();
+    return true;
+  }
+
   noteActivity(): void {
     if (!this.accepting) return;
     this.lastProofAt = this.now();
@@ -389,7 +405,7 @@ class PooledSession {
   private watchSocket(): void {
     if (this.socketWatched) return;
     this.socketWatched = true;
-    let socket: { on?: (event: string, listener: () => void) => unknown };
+    let socket: { on?: (event: string, listener: (err: unknown) => void) => unknown };
     try {
       socket = this.session.socket;
     } catch {
@@ -399,8 +415,10 @@ class PooledSession {
     // ("sockets should not be directly manipulated"). PINGs cover silent death;
     // error and close cover a reset the session has not surfaced yet.
     try {
-      socket.on?.("error", () => {
-        if (!this.removed) this.drop("upstream socket error");
+      socket.on?.("error", (err: unknown) => {
+        if (this.removed) return;
+        if (this.noteStreamReset(err)) return;
+        this.drop("upstream socket error");
       });
       socket.on?.("close", () => {
         if (!this.removed) this.retire("upstream socket closed");
@@ -434,14 +452,16 @@ class PooledSession {
   private destroySession(reason: string): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    // Reset the TCP socket first. On Bun, session.destroy(err) rethrows `err`
-    // and detaches the socket without closing it when the handshake never
-    // finished, so a later reset can no longer reach the fd.
-    try {
-      const socket = this.session.socket as { resetAndDestroy?: () => void };
-      if (typeof socket.resetAndDestroy === "function") socket.resetAndDestroy();
-    } catch {
-      // already disconnected, or this runtime rejects the call
+    // On Bun, session.destroy(err) rethrows `err` and leaves the TCP socket
+    // open when the handshake never finished. An established session must not
+    // be reset this way: Windows then reports ECONNRESET on the peer.
+    if (!this.connected) {
+      try {
+        const socket = this.session.socket as { resetAndDestroy?: () => void };
+        if (typeof socket.resetAndDestroy === "function") socket.resetAndDestroy();
+      } catch {
+        // already disconnected, or this runtime rejects the call
+      }
     }
     try {
       this.session.destroy(new Error(reason));
@@ -454,6 +474,12 @@ class PooledSession {
     if (this.timer !== undefined) clearTimeout(this.timer);
     this.timer = undefined;
   }
+}
+
+function isStreamReset(err: unknown): boolean {
+  const code = typeof err === "object" && err !== null && "code" in err && typeof (err as { code: unknown }).code === "string" ? (err as { code: string }).code : "";
+  const message = err instanceof Error ? err.message : "";
+  return code === "ECONNRESET" || code === "EPIPE" || message.includes("ECONNRESET") || message.includes("EPIPE");
 }
 
 function hostOf(url: string): string {

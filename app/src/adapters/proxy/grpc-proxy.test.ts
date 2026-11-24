@@ -114,6 +114,20 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Windows reports a cancelled HTTP/2 stream as ECONNRESET on the peer. The
+// tests still assert the proxy's grpc-status; the reset itself is expected.
+function ignorePeerResets(server: http2.Http2Server): void {
+  server.on("session", (session) => {
+    session.on("error", () => {});
+  });
+  server.on("connection", (socket) => {
+    socket.on("error", () => {});
+  });
+  server.on("stream", (stream) => {
+    stream.on("error", () => {});
+  });
+}
+
 // Forwards bytes until drop(). After that the TCP connection stays open and
 // data is discarded, so the proxy sees an ESTABLISHED socket with no HTTP/2
 // PING acknowledgement. New connections still forward.
@@ -483,6 +497,7 @@ describe("GrpcProxyServer", () => {
 
   test("total_ms aborts a hanging stream with grpc-status 4", async () => {
     const hang = http2.createServer();
+    ignorePeerResets(hang);
     hang.on("stream", () => {
       /* never responds */
     });
@@ -507,8 +522,10 @@ describe("GrpcProxyServer", () => {
 
   test("idle_ms aborts when DATA frames stall", async () => {
     const hang = http2.createServer();
+    ignorePeerResets(hang);
     hang.on("stream", (raw) => {
       const stream = raw as ServerHttp2Stream;
+      stream.on("error", () => {});
       stream.respond({ ":status": 200, "content-type": "application/grpc" }, { waitForTrailers: true });
       stream.write("ping");
     });
