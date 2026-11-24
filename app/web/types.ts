@@ -390,6 +390,33 @@ export type Route = {
   trafficId?: string;
 };
 
+export type DockMetric = {
+  key: string;
+  label: string;
+  value: string;
+  unit?: string;
+  missing?: boolean;
+};
+
+export type DockCard = {
+  id: string;
+  title: string;
+  kind: "iframe" | "text";
+  source: string;
+  url?: string;
+  text?: string;
+  error?: string;
+  truncated?: boolean;
+  metrics?: DockMetric[];
+  metrics_error?: string;
+  refresh_seconds: number;
+};
+
+export type DockPayload = {
+  items: DockCard[];
+  refresh_seconds: number;
+};
+
 export type UpdateCheckPayload = {
   current: string;
   latest: string;

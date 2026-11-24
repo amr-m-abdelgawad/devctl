@@ -41,6 +41,8 @@ export { CaretLeftIcon } from "@phosphor-icons/react/dist/csr/CaretLeft";
 export { CommandIcon } from "@phosphor-icons/react/dist/csr/Command";
 export { FileCodeIcon } from "@phosphor-icons/react/dist/csr/FileCode";
 export { BrowsersIcon } from "@phosphor-icons/react/dist/csr/Browsers";
+export { ArrowsOutSimpleIcon } from "@phosphor-icons/react/dist/csr/ArrowsOutSimple";
+export { ArticleIcon } from "@phosphor-icons/react/dist/csr/Article";
 export { GithubLogoIcon } from "@phosphor-icons/react/dist/csr/GithubLogo";
 export { StarIcon } from "@phosphor-icons/react/dist/csr/Star";
 export { BugIcon } from "@phosphor-icons/react/dist/csr/Bug";

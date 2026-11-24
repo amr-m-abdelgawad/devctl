@@ -37,6 +37,7 @@ import {
   traceRequestTool,
 } from "../mcp/tools.ts";
 import { WEB_INDEX_HTML } from "./assets.generated.ts";
+import { readDock } from "./dock.ts";
 
 const JSON_CONTENT = "application/json";
 const JSONL_CONTENT = "application/x-ndjson; charset=utf-8";
@@ -200,6 +201,10 @@ export class WebHttpServer {
     }
     if (path === "/api/config") {
       writeJson(res, 200, getConfigSummary(host.config()));
+      return;
+    }
+    if (path === "/api/dock") {
+      writeJson(res, 200, await readDock(host.config(), host.status(), this.boundPort));
       return;
     }
     if (path === "/api/config/sources") {

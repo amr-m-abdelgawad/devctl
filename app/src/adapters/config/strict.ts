@@ -53,6 +53,8 @@ import {
   knownTelemetryOtlp,
   knownUI,
   knownWeb,
+  knownWebDock,
+  knownWebDockMetric,
   knownLlm,
   knownLlmSource,
   knownLlmAuth,
@@ -165,6 +167,8 @@ function knownForPath(path: string): string[] {
       return knownWeb;
     case "web.listen":
       return knownListen;
+    case "web.dock":
+      return [];
     case "llm":
       return knownLlm;
     default:
@@ -215,11 +219,25 @@ function nestedKnown(path: string): string[] {
   if (path.startsWith("plugins.") && path.split(".").length === 2) {
     return knownPlugin;
   }
+  if (path.startsWith("web.dock.")) {
+    return webDockPathKnown(path);
+  }
   if (path === "llm.sources") {
     return [];
   }
   if (path.startsWith("llm.sources.")) {
     return llmSourcePathKnown(path);
+  }
+  return [];
+}
+
+function webDockPathKnown(path: string): string[] {
+  const parts = path.split(".");
+  if (parts.length === 3) {
+    return knownWebDock;
+  }
+  if (parts[3] === "metrics" && parts.length >= 5) {
+    return knownWebDockMetric;
   }
   return [];
 }

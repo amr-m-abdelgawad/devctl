@@ -522,9 +522,34 @@ export type TelemetryConfig = {
 
 export const DEFAULT_OTLP_HTTP_PORT = 4318;
 
+/** One JSON field from a text card's response, drawn as a metric tile. */
+export type WebDockMetric = {
+  /** Dotted path, such as `queued` or `stats.latency_ms`. A numeric segment indexes an array. */
+  key: string;
+  /** Empty uses the last path segment as the tile label. */
+  label: string;
+  /** Empty draws no suffix. A short unit such as `ms` is shown after the value. */
+  unit: string;
+};
+
+export type WebDockItem = {
+  id: string;
+  title: string;
+  kind: string;
+  url: string;
+  service: string;
+  port: string;
+  path: string;
+  /** 0 means the default refresh interval. Meaningful for kind: text. */
+  refresh_seconds: number;
+  /** Empty leaves the card as a text preview. Meaningful for kind: text. */
+  metrics: WebDockMetric[];
+};
+
 export type WebConfig = {
   enabled: boolean;
   listen: ListenConfig;
+  dock: WebDockItem[];
 };
 
 export const DEFAULT_WEB_PORT = 18900;
@@ -967,6 +992,7 @@ export function defaultConfig(): DevctlConfig {
     web: {
       enabled: false,
       listen: { host: LOCALHOST, port: DEFAULT_WEB_PORT },
+      dock: [],
     },
     auth: { refresh_threshold_seconds: DEFAULT_REFRESH_THRESHOLD_SECONDS },
     shutdown: { grace_seconds: DEFAULT_GRACE_SECONDS },

@@ -29,7 +29,7 @@ function config() {
     { name: "temporal", transport: "grpc", listen: { host: "127.0.0.1", port: 7233 }, match: { host: "", path: "" }, upstream: { url: "https://t.example.com" }, auth: emptyRouteAuth() },
   ];
   cfg.telemetry.otlp = { enabled: true, listen: { host: "127.0.0.1", port: 18418 } };
-  cfg.web = { enabled: true, listen: { host: "127.0.0.1", port: 18900 } };
+  cfg.web = { enabled: true, listen: { host: "127.0.0.1", port: 18900 }, dock: [] };
   return cfg;
 }
 

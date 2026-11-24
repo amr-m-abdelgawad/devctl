@@ -99,7 +99,9 @@ export const knownHttpCache = ["jwt", "expires_in"];
 export const knownHttpExpose = ["enabled", "host", "response_headers", "allow_token_body"];
 export const knownTelemetry = ["otlp", "store_max_bytes"];
 export const knownTelemetryOtlp = ["enabled", "listen"];
-export const knownWeb = ["enabled", "listen"];
+export const knownWeb = ["enabled", "listen", "dock"];
+export const knownWebDock = ["id", "title", "kind", "url", "service", "port", "path", "refresh_seconds", "metrics"];
+export const knownWebDockMetric = ["key", "label", "unit"];
 export const knownLlm = ["enabled", "sources", "capture_max_bytes", "store_max_bytes"];
 export const knownLlmSource = [
   "name",

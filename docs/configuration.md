@@ -92,7 +92,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | `logs` | In-memory cap and persistence |
 | `telemetry.otlp` | Opt-in loopback OTLP/HTTP receiver, JSON or protobuf (off by default) — see [Telemetry](telemetry.md) |
 | `telemetry.store_max_bytes` | Byte budget for the trace store, proxy request spans included (64 MiB when unset) — see [Telemetry](telemetry.md) |
-| `web` | Opt-in loopback telemetry web UI (off by default, port 18900) — see [Web console](web.md) |
+| `web` | Opt-in loopback web UI (off by default, port 18900). `web.dock` pins iframe and text cards to the overview — see [Web console](web.md) |
 | `llm` | Opt-in LLM traffic inspector (off by default) — see [LLM inspector](llm.md) |
 | `auth.refresh_threshold_seconds` | Token refresh window (default 300) |
 | `shutdown` | `stop_services_on_exit`, `grace_seconds` |
@@ -140,7 +140,7 @@ session overlay (or `--overlay <name>`).
 
 ![devctl config diff — each effective value with the file and layer that won](assets/manual/cli-config-diff.png)
 
-Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, HTTP recipes (url, body vs form, reserved outputs, expose requires proxy, recipe cycles, `${http.*}` / `${token}` refs), health thresholds, duplicate ports, identities, proxy routes (including per-service `proxy` fragments and synthesized `expose` / `http.*.expose` routes merged at load), `proxy.listen.port` when `proxy.enabled` is true, environment references, profile references, optional `plugins[].path`, `telemetry.otlp.listen` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), and `web.listen` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports).
+Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, HTTP recipes (url, body vs form, reserved outputs, expose requires proxy, recipe cycles, `${http.*}` / `${token}` refs), health thresholds, duplicate ports, identities, proxy routes (including per-service `proxy` fragments and synthesized `expose` / `http.*.expose` routes merged at load), `proxy.listen.port` when `proxy.enabled` is true, environment references, profile references, optional `plugins[].path`, `telemetry.otlp.listen` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), `web.listen` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports), and `web.dock` (at most eight iframe or text cards, each a loopback URL or a configured service port, never the web console's own port; a text card may name up to six JSON `metrics` keys).
 
 The TUI Config screen `v` / `/buffer` overlay validates this text before writing. Invalid YAML is not saved. `e` still opens `$EDITOR`.
 

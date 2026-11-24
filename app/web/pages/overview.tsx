@@ -14,6 +14,7 @@ import { useState } from "react";
 import { isLiveState, type RunControl } from "../control.ts";
 import { durationMs, relative } from "../format.ts";
 import { useStopServices } from "../hooks/use-stop-services.tsx";
+import { OverviewDock } from "../components/overview-dock.tsx";
 import { ServiceFleet } from "../components/service-fleet.tsx";
 import { FilterSelect } from "../components/filters.tsx";
 import { hrefFor, logsHref } from "../hash.ts";
@@ -152,6 +153,7 @@ export function OverviewPage(props: {
         </div>
       </div>
       {confirmation}
+      <OverviewDock />
       <ServiceFleet services={services} config={configServices} profiles={profiles} busy={busy} onControl={onControl} />
 
       <div className="flex flex-col gap-4">

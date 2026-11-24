@@ -1,4 +1,5 @@
 import { knownCapabilities, SHELL_META_TOKENS } from "./known.ts";
+import { dockConfigIssues } from "../../domain/config/dock.ts";
 import { isLinkLocalOrMetadataHost, isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { resolvePluginPath } from "../../shared/plugin-paths.ts";
 import { sopsConfigIssues } from "../environment/sops.ts";
@@ -953,6 +954,7 @@ function validateWeb(cfg: DevctlConfig): string[] {
       }
     });
   }
+  issues.push(...dockConfigIssues(cfg));
   return issues;
 }
 
