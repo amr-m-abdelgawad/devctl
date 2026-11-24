@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchDock } from "../api.ts";
 import { ArticleIcon, ArrowsOutSimpleIcon, BrowsersIcon, SquaresFourIcon } from "../icons.ts";
-import type { DockCard, DockPayload } from "../types.ts";
+import type { DockCard, DockMetric, DockPayload } from "../types.ts";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
@@ -118,6 +118,7 @@ function DockTile(props: { item: DockCard; onOpen: () => void }) {
         </Button>
       </div>
       <DockPreview item={item} onOpen={onOpen} />
+      {item.metrics_error ? <p className="text-[11px] text-muted-foreground">{item.metrics_error}</p> : null}
       {item.truncated ? <p className="text-[11px] text-muted-foreground">Showing the first part of the response.</p> : null}
     </article>
   );
@@ -139,6 +140,13 @@ function DockPreview(props: { item: DockCard; onOpen: () => void }) {
       </button>
     );
   }
+  if (item.metrics && item.metrics.length > 0) {
+    return (
+      <button type="button" onClick={onOpen} className="block w-full rounded-lg text-left" aria-label={`Open ${item.title} full screen`}>
+        <DockMetrics metrics={item.metrics} />
+      </button>
+    );
+  }
   return (
     <button type="button" onClick={onOpen} className="relative block h-56 w-full overflow-hidden rounded-lg border bg-muted/20 px-3 py-3 text-left" aria-label={`Open ${item.title} full screen`}>
       <span className={cn("block whitespace-pre-wrap text-[13px] leading-relaxed", isMonospace(item.text) && "font-mono text-[12px]")}>
@@ -157,6 +165,12 @@ function DockDialog(props: { item: DockCard }) {
         <DialogTitle>{item.title}</DialogTitle>
         <DialogDescription>{item.error || item.source || "Dock panel"}</DialogDescription>
       </DialogHeader>
+      {item.metrics && item.metrics.length > 0 ? (
+        <div className="shrink-0">
+          <DockMetrics metrics={item.metrics} wide />
+          {item.metrics_error ? <p className="mt-2 text-xs text-muted-foreground">{item.metrics_error}</p> : null}
+        </div>
+      ) : null}
       {item.kind === "iframe" && item.url ? (
         <iframe
           title={item.title}
@@ -171,6 +185,35 @@ function DockDialog(props: { item: DockCard }) {
         </pre>
       )}
     </DialogContent>
+  );
+}
+
+function DockMetrics(props: { metrics: DockMetric[]; wide?: boolean }) {
+  const { metrics, wide = false } = props;
+  return (
+    <div
+      className={cn(
+        "grid gap-2",
+        metrics.length === 1 && "grid-cols-1",
+        metrics.length > 1 && "grid-cols-2",
+        wide && metrics.length > 2 && "sm:grid-cols-3",
+      )}
+    >
+      {metrics.map((metric) => (
+        <div key={metric.key} className="metric-tile min-w-0 rounded-lg border bg-card px-3 py-3">
+          <div className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground" title={metric.label}>
+            {metric.label}
+          </div>
+          <div className="mt-1.5 flex items-baseline gap-1">
+            <span className={cn("text-[22px] font-semibold leading-none tabular-nums", metric.missing && "text-muted-foreground")}>
+              {metric.value}
+            </span>
+            {metric.unit ? <span className="text-[11px] text-muted-foreground">{metric.unit}</span> : null}
+          </div>
+          {metric.missing ? <div className="mt-1 text-[11px] text-muted-foreground">Not in the response</div> : null}
+        </div>
+      ))}
+    </div>
   );
 }
 

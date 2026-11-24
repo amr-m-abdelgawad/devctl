@@ -522,6 +522,16 @@ export type TelemetryConfig = {
 
 export const DEFAULT_OTLP_HTTP_PORT = 4318;
 
+/** One JSON field from a text card's response, drawn as a metric tile. */
+export type WebDockMetric = {
+  /** Dotted path, such as `queued` or `stats.latency_ms`. A numeric segment indexes an array. */
+  key: string;
+  /** Empty uses the last path segment as the tile label. */
+  label: string;
+  /** Empty draws no suffix. A short unit such as `ms` is shown after the value. */
+  unit: string;
+};
+
 export type WebDockItem = {
   id: string;
   title: string;
@@ -532,6 +542,8 @@ export type WebDockItem = {
   path: string;
   /** 0 means the default refresh interval. Meaningful for kind: text. */
   refresh_seconds: number;
+  /** Empty leaves the card as a text preview. Meaningful for kind: text. */
+  metrics: WebDockMetric[];
 };
 
 export type WebConfig = {

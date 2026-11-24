@@ -863,7 +863,23 @@
         "service": { "type": "string", "description": "Managed service whose port is the target. Mutually exclusive with url. The assigned port is used when the service is running; otherwise a fixed declared port." },
         "port": { "type": "string", "description": "Named service port. Defaults to http." },
         "path": { "type": "string", "description": "URL path on the service, starting with /. Defaults to /." },
-        "refresh_seconds": { "type": "integer", "minimum": 5, "maximum": 3600, "description": "How often a text card refetches. Omitted uses 15 seconds. Not valid on iframe." }
+        "refresh_seconds": { "type": "integer", "minimum": 5, "maximum": 3600, "description": "How often a text card refetches. Omitted uses 15 seconds. Not valid on iframe." },
+        "metrics": {
+          "type": "array",
+          "maxItems": 6,
+          "description": "Text cards only. Each entry names a key in the JSON response and is drawn as a metric tile. The response body stays available full screen.",
+          "items": { "$ref": "#/$defs/webDockMetric" }
+        }
+      }
+    },
+    "webDockMetric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "properties": {
+        "key": { "type": "string", "description": "Dotted path into the JSON object, such as queued or stats.latency_ms. A numeric segment such as jobs.0.status indexes an array. An array value is shown as its length." },
+        "label": { "type": "string", "description": "Tile label. Omitted uses the last path segment." },
+        "unit": { "type": "string", "description": "Short suffix after the value, such as ms. No spaces." }
       }
     },
     "llm": {

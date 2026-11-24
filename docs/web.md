@@ -56,9 +56,11 @@ The overview combines service status, recent proxy requests, and errors. Under t
 | Kind | What it shows |
 |------|----------------|
 | `iframe` | A loopback page, previewed in the card. **Full screen** opens that page in a dialog. |
-| `text` | A title plus the body of a loopback request. JSON is pretty-printed. HTML is shown as text. The console fetches it, so the target does not need CORS. |
+| `text` | A title plus the body of a loopback request. JSON is pretty-printed. HTML is shown as text. Optional `metrics` keys from that JSON are drawn as tiles. The console fetches it, so the target does not need CORS. |
 
 Point a card at a literal loopback URL, or at a managed service. A service target uses the port the process is actually listening on, and a fixed declared port when it is not running yet. `port` defaults to `http`. `path` defaults to `/`. `refresh_seconds` (text only) defaults to 15 and must be from 5 to 3600.
+
+`metrics` is text-only, at most six entries. `key` is a dotted path such as `queued` or `stats.latency_ms`. A numeric segment such as `jobs.0.status` indexes an array. An array value is shown as its length. `label` defaults to the last path segment. `unit` is an optional suffix such as `ms`. A missing key is shown blank. The full response stays available from **Full screen**.
 
 ```yaml
 web:
@@ -72,8 +74,16 @@ web:
       title: Invoice queue
       kind: text
       service: invoices-api
-      path: /jobs
+      path: /stats
       refresh_seconds: 10
+      metrics:
+        - key: jobs
+          label: Jobs
+        - key: queued
+          label: Queued
+        - key: stats.latency_ms
+          label: Latency
+          unit: ms
     - id: note
       title: Local note
       kind: text

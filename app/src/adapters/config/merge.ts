@@ -51,6 +51,7 @@ import {
   type TelemetryConfig,
   type WebConfig,
   type WebDockItem,
+  type WebDockMetric,
   type LlmConfig,
   type LlmSourceConfig,
   type LlmCaptureFieldMap,
@@ -338,7 +339,7 @@ export function applyWeb(web: WebConfig, raw: Record<string, unknown>): void {
 
 function decodeDockItem(raw: unknown): WebDockItem {
   if (!isRecord(raw)) {
-    return { id: "", title: "", kind: "", url: "", service: "", port: "", path: "", refresh_seconds: Number.NaN };
+    return { id: "", title: "", kind: "", url: "", service: "", port: "", path: "", refresh_seconds: Number.NaN, metrics: [] };
   }
   return {
     id: asString(raw.id).trim(),
@@ -349,6 +350,28 @@ function decodeDockItem(raw: unknown): WebDockItem {
     port: asString(raw.port).trim(),
     path: asString(raw.path).trim(),
     refresh_seconds: raw.refresh_seconds === undefined ? 0 : decodeStrictNumber(raw.refresh_seconds),
+    metrics: decodeDockMetrics(raw.metrics),
+  };
+}
+
+function decodeDockMetrics(raw: unknown): WebDockMetric[] {
+  if (raw === undefined) {
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    return [{ key: "", label: "", unit: "" }];
+  }
+  return raw.map(decodeDockMetric);
+}
+
+function decodeDockMetric(raw: unknown): WebDockMetric {
+  if (!isRecord(raw)) {
+    return { key: "", label: "", unit: "" };
+  }
+  return {
+    key: asString(raw.key).trim(),
+    label: asString(raw.label).trim(),
+    unit: asString(raw.unit).trim(),
   };
 }
 

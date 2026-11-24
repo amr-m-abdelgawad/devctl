@@ -848,7 +848,7 @@ session overlay (or \`--overlay <name>\`).
 
 ![devctl config diff — each effective value with the file and layer that won](assets/manual/cli-config-diff.png)
 
-Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, HTTP recipes (url, body vs form, reserved outputs, expose requires proxy, recipe cycles, \`\${http.*}\` / \`\${token}\` refs), health thresholds, duplicate ports, identities, proxy routes (including per-service \`proxy\` fragments and synthesized \`expose\` / \`http.*.expose\` routes merged at load), \`proxy.listen.port\` when \`proxy.enabled\` is true, environment references, profile references, optional \`plugins[].path\`, \`telemetry.otlp.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), \`web.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports), and \`web.dock\` (at most eight iframe or text cards, each a loopback URL or a configured service port, never the web console's own port).
+Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, HTTP recipes (url, body vs form, reserved outputs, expose requires proxy, recipe cycles, \`\${http.*}\` / \`\${token}\` refs), health thresholds, duplicate ports, identities, proxy routes (including per-service \`proxy\` fragments and synthesized \`expose\` / \`http.*.expose\` routes merged at load), \`proxy.listen.port\` when \`proxy.enabled\` is true, environment references, profile references, optional \`plugins[].path\`, \`telemetry.otlp.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), \`web.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports), and \`web.dock\` (at most eight iframe or text cards, each a loopback URL or a configured service port, never the web console's own port; a text card may name up to six JSON \`metrics\` keys).
 
 The TUI Config screen \`v\` / \`/buffer\` overlay validates this text before writing. Invalid YAML is not saved. \`e\` still opens \`$EDITOR\`.
 
@@ -4842,9 +4842,11 @@ The overview combines service status, recent proxy requests, and errors. Under t
 | Kind | What it shows |
 |------|----------------|
 | \`iframe\` | A loopback page, previewed in the card. **Full screen** opens that page in a dialog. |
-| \`text\` | A title plus the body of a loopback request. JSON is pretty-printed. HTML is shown as text. The console fetches it, so the target does not need CORS. |
+| \`text\` | A title plus the body of a loopback request. JSON is pretty-printed. HTML is shown as text. Optional \`metrics\` keys from that JSON are drawn as tiles. The console fetches it, so the target does not need CORS. |
 
 Point a card at a literal loopback URL, or at a managed service. A service target uses the port the process is actually listening on, and a fixed declared port when it is not running yet. \`port\` defaults to \`http\`. \`path\` defaults to \`/\`. \`refresh_seconds\` (text only) defaults to 15 and must be from 5 to 3600.
+
+\`metrics\` is text-only, at most six entries. \`key\` is a dotted path such as \`queued\` or \`stats.latency_ms\`. A numeric segment such as \`jobs.0.status\` indexes an array. An array value is shown as its length. \`label\` defaults to the last path segment. \`unit\` is an optional suffix such as \`ms\`. A missing key is shown blank. The full response stays available from **Full screen**.
 
 \`\`\`yaml
 web:
@@ -4858,8 +4860,16 @@ web:
       title: Invoice queue
       kind: text
       service: invoices-api
-      path: /jobs
+      path: /stats
       refresh_seconds: 10
+      metrics:
+        - key: jobs
+          label: Jobs
+        - key: queued
+          label: Queued
+        - key: stats.latency_ms
+          label: Latency
+          unit: ms
     - id: note
       title: Local note
       kind: text

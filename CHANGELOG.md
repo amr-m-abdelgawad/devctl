@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The web console overview has a dock in the center of the page. `web.dock` in `.devctl` pins an iframe, which opens in a full-screen dialog, or a titled text card whose body is fetched from a loopback URL or a managed service. See [Web console](docs/web.md).
+- The web console overview has a dock in the center of the page. `web.dock` in `.devctl` pins an iframe, which opens in a full-screen dialog, or a titled text card whose body is fetched from a loopback URL or a managed service. A text card can list `metrics` keys from that JSON response and show each value as a tile. See [Web console](docs/web.md).
 
 ### Fixed
 

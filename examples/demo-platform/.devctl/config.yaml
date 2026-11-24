@@ -195,8 +195,8 @@ web:
   listen:
     host: 127.0.0.1
     port: 18900
-  # Center of the web overview. The iframe opens full screen; the text card
-  # shows the body of a loopback request. Both stay on 127.0.0.1.
+  # Center of the web overview. The iframe opens full screen. The text card
+  # fetches /stats on loopback and draws the listed JSON keys as metric tiles.
   dock:
     - id: billing
       title: Billing console
@@ -207,8 +207,17 @@ web:
       title: Invoice queue
       kind: text
       service: invoices-api
-      path: /jobs
+      path: /stats
       refresh_seconds: 10
+      metrics:
+        - key: jobs
+          label: Jobs
+        - key: queued
+          label: Queued
+        - key: done
+          label: Done
+        - key: identity_failures
+          label: Identity failures
 
 # Local OpenAI-compatible stub (`services.llm`), captured off the `llm` proxy
 # route. No LiteLLM, no cloud key. Extra `capture.paths` records the stub's

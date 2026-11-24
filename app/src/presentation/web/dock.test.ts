@@ -45,11 +45,15 @@ describe("dock reader", () => {
     cfg.services.api = svc;
     cfg.web.listen.port = 18900;
     cfg.web.dock = [
-      { id: "queue", title: "Invoice queue", kind: "text", url: "", service: "api", port: "", path: "/jobs", refresh_seconds: 10 },
-      { id: "billing", title: "Billing", kind: "iframe", url: `http://localhost:${port}/`, service: "", port: "", path: "", refresh_seconds: 0 },
-      { id: "away", title: "Away", kind: "text", url: `http://127.0.0.1:${port}/away`, service: "", port: "", path: "", refresh_seconds: 0 },
-      { id: "pic", title: "Pic", kind: "text", url: `http://127.0.0.1:${port}/pic`, service: "", port: "", path: "", refresh_seconds: 0 },
-      { id: "remote", title: "Remote", kind: "text", url: "http://example.com/secret", service: "", port: "", path: "", refresh_seconds: 0 },
+      { id: "queue", title: "Invoice queue", kind: "text", url: "", service: "api", port: "", path: "/jobs", refresh_seconds: 10, metrics: [
+        { key: "jobs", label: "Jobs", unit: "" },
+        { key: "jobs.0.title", label: "First", unit: "" },
+        { key: "missing", label: "", unit: "" },
+      ] },
+      { id: "billing", title: "Billing", kind: "iframe", url: `http://localhost:${port}/`, service: "", port: "", path: "", refresh_seconds: 0, metrics: [] },
+      { id: "away", title: "Away", kind: "text", url: `http://127.0.0.1:${port}/away`, service: "", port: "", path: "", refresh_seconds: 0, metrics: [] },
+      { id: "pic", title: "Pic", kind: "text", url: `http://127.0.0.1:${port}/pic`, service: "", port: "", path: "", refresh_seconds: 0, metrics: [] },
+      { id: "remote", title: "Remote", kind: "text", url: "http://example.com/secret", service: "", port: "", path: "", refresh_seconds: 0, metrics: [] },
     ];
     const snap = status();
     snap.services.api = { ...emptyRuntime("api"), ports: { http: port } };
@@ -59,6 +63,11 @@ describe("dock reader", () => {
       const queue = payload.items.find((item) => item.id === "queue");
       expect(queue?.text).toContain("index invoices");
       expect(queue?.error).toBeUndefined();
+      expect(queue?.metrics).toEqual([
+        { key: "jobs", label: "Jobs", value: "1" },
+        { key: "jobs.0.title", label: "First", value: "index invoices" },
+        { key: "missing", label: "Missing", value: "—", missing: true },
+      ]);
       const billing = payload.items.find((item) => item.id === "billing");
       expect(billing?.url).toBe(`http://localhost:${port}/`);
       expect(billing?.kind).toBe("iframe");

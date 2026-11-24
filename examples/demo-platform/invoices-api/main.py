@@ -167,6 +167,16 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/jobs":
             self._json(200, {"jobs": JOBS})
             return
+        if path == "/stats":
+            queued = sum(1 for job in JOBS if job.get("status") == "queued")
+            done = sum(1 for job in JOBS if job.get("status") == "done")
+            self._json(200, {
+                "jobs": len(JOBS),
+                "queued": queued,
+                "done": done,
+                "identity_failures": IDENTITY_FAILURES,
+            })
+            return
         self._json(404, {"error": "not found"})
 
     def _fulfill(self) -> None:

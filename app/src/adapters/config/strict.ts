@@ -54,6 +54,7 @@ import {
   knownUI,
   knownWeb,
   knownWebDock,
+  knownWebDockMetric,
   knownLlm,
   knownLlmSource,
   knownLlmAuth,
@@ -219,13 +220,24 @@ function nestedKnown(path: string): string[] {
     return knownPlugin;
   }
   if (path.startsWith("web.dock.")) {
-    return path.split(".").length === 3 ? knownWebDock : [];
+    return webDockPathKnown(path);
   }
   if (path === "llm.sources") {
     return [];
   }
   if (path.startsWith("llm.sources.")) {
     return llmSourcePathKnown(path);
+  }
+  return [];
+}
+
+function webDockPathKnown(path: string): string[] {
+  const parts = path.split(".");
+  if (parts.length === 3) {
+    return knownWebDock;
+  }
+  if (parts[3] === "metrics" && parts.length >= 5) {
+    return knownWebDockMetric;
   }
   return [];
 }

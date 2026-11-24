@@ -795,6 +795,7 @@ describe("web http server", () => {
       port: "",
       path: "",
       refresh_seconds: 10,
+      metrics: [],
     }];
     const server = await listen(api);
     try {

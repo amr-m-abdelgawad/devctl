@@ -6,12 +6,22 @@ import {
   DOCK_MAX_TEXT_CHARS,
   dockRefreshSeconds,
   dockSourceLabel,
+  extractDockMetrics,
   formatDockText,
   loopbackFetchUrl,
   resolveDockTarget,
+  type DockMetricReading,
 } from "../../domain/config/dock.ts";
-import type { DevctlConfig, WebDockItem } from "../../domain/config/types.ts";
+import type { DevctlConfig, WebDockItem, WebDockMetric } from "../../domain/config/types.ts";
 import type { StatusSnapshot } from "../../domain/status.ts";
+
+export type DockMetric = {
+  key: string;
+  label: string;
+  value: string;
+  unit?: string;
+  missing?: boolean;
+};
 
 export type DockCard = {
   id: string;
@@ -22,6 +32,8 @@ export type DockCard = {
   text?: string;
   error?: string;
   truncated?: boolean;
+  metrics?: DockMetric[];
+  metrics_error?: string;
   refresh_seconds: number;
 };
 
@@ -65,10 +77,10 @@ async function readDockItem(
   if (item.kind === DOCK_KIND_IFRAME) {
     return { ...card, url: target.url };
   }
-  return { ...card, ...(await fetchDockText(target.url)) };
+  return { ...card, ...(await fetchDockText(target.url, item.metrics)) };
 }
 
-async function fetchDockText(raw: string): Promise<Pick<DockCard, "text" | "error" | "truncated">> {
+async function fetchDockText(raw: string, metrics: WebDockMetric[]): Promise<Pick<DockCard, "text" | "error" | "truncated" | "metrics" | "metrics_error">> {
   let url = raw;
   try {
     url = loopbackFetchUrl(raw);
@@ -95,15 +107,38 @@ async function fetchDockText(raw: string): Promise<Pick<DockCard, "text" | "erro
       return { error: "the response is not text" };
     }
     const read = await readCapped(res.body, DOCK_MAX_TEXT_CHARS);
-    const text = formatDockText(type, read.text);
-    return {
-      text,
-      error: res.ok ? undefined : `HTTP ${res.status}`,
-      truncated: read.truncated ? true : undefined,
-    };
+    return dockTextFields(type, read.text, read.truncated, res.ok, res.status, metrics);
   } catch (err) {
     return { error: err instanceof Error ? err.message : "request failed" };
   }
+}
+
+function dockTextFields(
+  contentType: string,
+  body: string,
+  truncated: boolean,
+  ok: boolean,
+  status: number,
+  metrics: WebDockMetric[],
+): Pick<DockCard, "text" | "error" | "truncated" | "metrics" | "metrics_error"> {
+  const extracted = extractDockMetrics(contentType, body, metrics);
+  return {
+    text: formatDockText(contentType, body),
+    error: ok ? undefined : `HTTP ${status}`,
+    truncated: truncated ? true : undefined,
+    metrics: extracted.readings.length === 0 ? undefined : extracted.readings.map(toDockMetric),
+    metrics_error: extracted.error === "" ? undefined : extracted.error,
+  };
+}
+
+function toDockMetric(reading: DockMetricReading): DockMetric {
+  return {
+    key: reading.key,
+    label: reading.label,
+    value: reading.value,
+    unit: reading.unit === "" ? undefined : reading.unit,
+    missing: reading.missing ? true : undefined,
+  };
 }
 
 function isBinaryType(contentType: string): boolean {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService, type WebDockItem } from "./types.ts";
-import { dockConfigIssues, formatDockText, loopbackFetchUrl, resolveDockTarget } from "./dock.ts";
+import { dockConfigIssues, extractDockMetrics, formatDockText, loopbackFetchUrl, resolveDockTarget } from "./dock.ts";
 
 function item(overrides: Partial<WebDockItem> = {}): WebDockItem {
   return {
@@ -12,6 +12,7 @@ function item(overrides: Partial<WebDockItem> = {}): WebDockItem {
     port: "",
     path: "",
     refresh_seconds: 0,
+    metrics: [],
     ...overrides,
   };
 }
@@ -78,6 +79,89 @@ describe("dock config", () => {
     const cfgAuto = withApi(0, true);
     const waiting = resolveDockTarget(item({ url: "", service: "api" }), cfgAuto, {}, 18900);
     expect(waiting.error).toContain("not listening");
+  });
+
+  test("accepts text metrics and rejects them on an iframe", () => {
+    const cfg = withApi();
+    cfg.web.dock = [item({
+      metrics: [
+        { key: "queued", label: "Queued", unit: "" },
+        { key: "stats.latency_ms", label: "Latency", unit: "ms" },
+        { key: "jobs.0.status", label: "", unit: "" },
+      ],
+    })];
+    expect(dockConfigIssues(cfg)).toEqual([]);
+    cfg.web.dock = [item({ kind: "iframe", url: "", service: "api", metrics: [{ key: "queued", label: "", unit: "" }] })];
+    expect(dockConfigIssues(cfg)[0]).toContain("applies to kind: text");
+    cfg.web.dock = [item({ metrics: [{ key: "queued jobs", label: "", unit: "" }] })];
+    expect(dockConfigIssues(cfg)[0]).toContain("dotted JSON key");
+    cfg.web.dock = [item({ metrics: [{ key: "queued", label: "", unit: "ms " }] })];
+    expect(dockConfigIssues(cfg)[0]).toContain("unit");
+    cfg.web.dock = [item({
+      metrics: [
+        { key: "queued", label: "", unit: "" },
+        { key: "queued", label: "Again", unit: "" },
+      ],
+    })];
+    expect(dockConfigIssues(cfg)[0]).toContain("duplicated");
+  });
+
+  test("reads configured json keys as metrics", () => {
+    const metrics = [
+      { key: "queued", label: "Queued", unit: "" },
+      { key: "stats.latency_ms", label: "", unit: "ms" },
+      { key: "jobs", label: "Jobs", unit: "" },
+      { key: "jobs.0.status", label: "First", unit: "" },
+      { key: "healthy", label: "", unit: "" },
+      { key: "missing", label: "", unit: "" },
+    ];
+    const body = JSON.stringify({
+      queued: 1200,
+      stats: { latency_ms: 12.456 },
+      jobs: [{ status: "queued" }, { status: "done" }],
+      healthy: true,
+      note: "",
+    });
+    const extracted = extractDockMetrics("application/json", body, metrics);
+    expect(extracted.error).toBe("");
+    expect(extracted.readings).toEqual([
+      { key: "queued", label: "Queued", value: "1,200", unit: "", missing: false },
+      { key: "stats.latency_ms", label: "Latency ms", value: "12.46", unit: "ms", missing: false },
+      { key: "jobs", label: "Jobs", value: "2", unit: "", missing: false },
+      { key: "jobs.0.status", label: "First", value: "queued", unit: "", missing: false },
+      { key: "healthy", label: "Healthy", value: "Yes", unit: "", missing: false },
+      { key: "missing", label: "Missing", value: "—", unit: "", missing: true },
+    ]);
+    expect(extractDockMetrics("text/plain", "not json", metrics).error).toBe("response is not JSON");
+    expect(extractDockMetrics("application/json", body, []).readings).toEqual([]);
+    const odd = extractDockMetrics("application/json", JSON.stringify({
+      blob: { nested: true },
+      blank: "  ",
+      note: "x".repeat(60),
+      jobs: [{ status: "queued" }],
+    }), [
+      { key: "blob", label: "", unit: "" },
+      { key: "blank", label: "", unit: "" },
+      { key: "note", label: "Note", unit: "" },
+      { key: "jobs.3.status", label: "Gone", unit: "ms" },
+    ]);
+    expect(odd.readings.map((reading) => [reading.key, reading.missing, reading.unit])).toEqual([
+      ["blob", true, ""],
+      ["blank", true, ""],
+      ["note", false, ""],
+      ["jobs.3.status", true, ""],
+    ]);
+    expect(odd.readings[2]?.value.endsWith("…")).toBe(true);
+  });
+
+  test("rejects more metric keys than the card can show", () => {
+    const cfg = withApi();
+    cfg.web.dock = [item({
+      metrics: ["a", "b", "c", "d", "e", "f", "g"].map((key) => ({ key, label: "", unit: "" })),
+    })];
+    expect(dockConfigIssues(cfg)[0]).toContain("maximum is 6");
+    cfg.web.dock = [item({ metrics: [{ key: "queued", label: "x".repeat(41), unit: "" }] })];
+    expect(dockConfigIssues(cfg)[0]).toContain("label");
   });
 
   test("formats json and strips html", () => {

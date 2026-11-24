@@ -390,6 +390,14 @@ export type Route = {
   trafficId?: string;
 };
 
+export type DockMetric = {
+  key: string;
+  label: string;
+  value: string;
+  unit?: string;
+  missing?: boolean;
+};
+
 export type DockCard = {
   id: string;
   title: string;
@@ -399,6 +407,8 @@ export type DockCard = {
   text?: string;
   error?: string;
   truncated?: boolean;
+  metrics?: DockMetric[];
+  metrics_error?: string;
   refresh_seconds: number;
 };
 
