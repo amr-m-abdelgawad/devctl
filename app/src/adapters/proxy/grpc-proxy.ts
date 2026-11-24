@@ -249,15 +249,15 @@ export class GrpcProxyServer {
         }
         finish(200, GRPC_DEADLINE_EXCEEDED, message);
       }
-      try {
-        upReq?.close(http2.constants.NGHTTP2_CANCEL);
-      } catch {
-        upReq?.destroy();
-      }
+      releaseUpstream();
     });
 
     let clientGone = false;
-    const cancelUpstream = (): void => {
+    // Set before the stream is reset. Windows reports that reset as
+    // ECONNRESET; that is this proxy closing one RPC, not a dead connection.
+    let releasedUpstream = false;
+    const releaseUpstream = (): void => {
+      releasedUpstream = true;
       try {
         upReq?.close(http2.constants.NGHTTP2_CANCEL);
       } catch {
@@ -266,7 +266,7 @@ export class GrpcProxyServer {
     };
     const onClientGone = (): void => {
       clientGone = true;
-      cancelUpstream();
+      releaseUpstream();
     };
     // The client can reset its stream between the upstream answering and this
     // relay. respond() then throws inside the upstream's event handler, where
@@ -291,7 +291,7 @@ export class GrpcProxyServer {
       } catch {
         // already torn down
       }
-      cancelUpstream();
+      releaseUpstream();
       return false;
     };
     front.on("close", onClientGone);
@@ -375,7 +375,7 @@ export class GrpcProxyServer {
       upTrailers = t;
     });
     upReq.on("error", (err) => {
-      if (upSession && isUpstreamNetworkFailure(err)) this.upstreams.dropSession(upSession, "upstream connection error");
+      if (!releasedUpstream && upSession && isUpstreamNetworkFailure(err)) this.upstreams.dropSession(upSession, "upstream connection error");
       if (recorded) {
         return;
       }
@@ -386,7 +386,7 @@ export class GrpcProxyServer {
         front.close(http2.constants.NGHTTP2_INTERNAL_ERROR);
       }
     });
-    front.on("error", () => upReq.destroy());
+    front.on("error", () => releaseUpstream());
     // A client cancel (RST_STREAM) or disconnect surfaces as 'close', not
     // always 'error'. If the RPC never completed, record it as cancelled and
     // tear down the upstream stream so it cannot leak on the pooled session —
@@ -394,7 +394,7 @@ export class GrpcProxyServer {
     front.on("close", () => {
       if (!recorded) {
         finish(499, GRPC_CANCELLED, "client closed before completion");
-        upReq.destroy();
+        releaseUpstream();
       }
     });
     this.pipeWithCapture(front, upReq, recorder, "request", timeouts.touch);
