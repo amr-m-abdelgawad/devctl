@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.3] - 2026-11-24
+
 ### Added
 
 - The web console overview has a dock in the center of the page. `web.dock` in `.devctl` pins an iframe, which opens in a full-screen dialog, or a titled text card whose body is fetched from a loopback URL or a managed service. A text card can list `metrics` keys from that JSON response and show each value as a tile. See [Web console](docs/web.md).
@@ -875,7 +877,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.2...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.3...HEAD
+[0.28.3]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.2...v0.28.3
 [0.28.2]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.1...v0.28.2
 [0.28.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.0...v0.28.1
 [0.28.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.27.0...v0.28.0
