@@ -52,7 +52,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "jscpd": "^5.4.2",
-    "knip": "^6.43.0",
+    "knip": "^6.44.1",
     "react-dom": "19.3.1",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3",
