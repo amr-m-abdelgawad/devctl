@@ -61,7 +61,7 @@
     "uplot": "^1.6.32"
   },
   "dependencies": {
-    "@opentui/core": "^0.8.1",
+    "@opentui/core": "^0.8.2",
     "@opentui/react": "^0.8.1",
     "commander": "^15.0.0",
     "dotenv": "^18.0.9",
