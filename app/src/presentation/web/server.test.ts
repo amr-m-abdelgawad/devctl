@@ -394,7 +394,7 @@ describe("web http server", () => {
     const port = server.listenPort();
     const base = `http://127.0.0.1:${port}`;
     try {
-      for (const path of ["/api/status", "/api/logs", "/api/logs/stats", "/api/logs/export", "/api/logs/sessions", "/api/doctor", "/api/llm", "/api/config", "/api/config/sources", "/api/services/api", "/api/preferences", "/api/llm/chatcmpl-1", "/api/traffic", "/api/traffic/req-1"]) {
+      for (const path of ["/api/status", "/api/logs", "/api/logs/stats", "/api/logs/export", "/api/logs/sessions", "/api/doctor", "/api/llm", "/api/config", "/api/config/sources", "/api/dock", "/api/services/api", "/api/preferences", "/api/llm/chatcmpl-1", "/api/traffic", "/api/traffic/req-1"]) {
         const missing = await fetch(`${base}${path}`);
         expect(missing.status).toBe(401);
         const wrong = await fetch(`${base}${path}`, { headers: { Authorization: "Bearer nope" } });
@@ -772,6 +772,40 @@ describe("web http server", () => {
       expect((await authGet(base, "/api/logs/sessions/nope")).status).toBe(404);
     } finally {
       await server.stop();
+    }
+  });
+
+  test("GET /api/dock returns loopback text for a configured card", async () => {
+    const text = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        return new Response("3 jobs waiting\nqueue is quiet", { headers: { "content-type": "text/plain" } });
+      },
+    });
+    const textPort = text.port ?? 0;
+    expect(textPort).toBeGreaterThan(0);
+    const api = host();
+    api.config().web.dock = [{
+      id: "queue",
+      title: "Invoice queue",
+      kind: "text",
+      url: `http://127.0.0.1:${textPort}/briefing`,
+      service: "",
+      port: "",
+      path: "",
+      refresh_seconds: 10,
+    }];
+    const server = await listen(api);
+    try {
+      const response = await authGet(`http://127.0.0.1:${server.listenPort()}`, "/api/dock");
+      expect(response.status).toBe(200);
+      const body = await response.json() as { items: Array<{ id: string; title: string; text?: string }>; refresh_seconds: number };
+      expect(body.refresh_seconds).toBe(10);
+      expect(body.items[0]).toMatchObject({ id: "queue", title: "Invoice queue", text: "3 jobs waiting\nqueue is quiet" });
+    } finally {
+      await server.stop();
+      text.stop(true);
     }
   });
 

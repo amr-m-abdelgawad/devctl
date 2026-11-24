@@ -195,6 +195,20 @@ web:
   listen:
     host: 127.0.0.1
     port: 18900
+  # Center of the web overview. The iframe opens full screen; the text card
+  # shows the body of a loopback request. Both stay on 127.0.0.1.
+  dock:
+    - id: billing
+      title: Billing console
+      kind: iframe
+      service: billing-console
+      path: /
+    - id: queue
+      title: Invoice queue
+      kind: text
+      service: invoices-api
+      path: /jobs
+      refresh_seconds: 10
 
 # Local OpenAI-compatible stub (`services.llm`), captured off the `llm` proxy
 # route. No LiteLLM, no cloud key. Extra `capture.paths` records the stub's

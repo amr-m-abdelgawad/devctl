@@ -800,7 +800,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | \`logs\` | In-memory cap and persistence |
 | \`telemetry.otlp\` | Opt-in loopback OTLP/HTTP receiver, JSON or protobuf (off by default) — see [Telemetry](telemetry.md) |
 | \`telemetry.store_max_bytes\` | Byte budget for the trace store, proxy request spans included (64 MiB when unset) — see [Telemetry](telemetry.md) |
-| \`web\` | Opt-in loopback telemetry web UI (off by default, port 18900) — see [Web console](web.md) |
+| \`web\` | Opt-in loopback web UI (off by default, port 18900). \`web.dock\` pins iframe and text cards to the overview — see [Web console](web.md) |
 | \`llm\` | Opt-in LLM traffic inspector (off by default) — see [LLM inspector](llm.md) |
 | \`auth.refresh_threshold_seconds\` | Token refresh window (default 300) |
 | \`shutdown\` | \`stop_services_on_exit\`, \`grace_seconds\` |
@@ -848,7 +848,7 @@ session overlay (or \`--overlay <name>\`).
 
 ![devctl config diff — each effective value with the file and layer that won](assets/manual/cli-config-diff.png)
 
-Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, HTTP recipes (url, body vs form, reserved outputs, expose requires proxy, recipe cycles, \`\${http.*}\` / \`\${token}\` refs), health thresholds, duplicate ports, identities, proxy routes (including per-service \`proxy\` fragments and synthesized \`expose\` / \`http.*.expose\` routes merged at load), \`proxy.listen.port\` when \`proxy.enabled\` is true, environment references, profile references, optional \`plugins[].path\`, \`telemetry.otlp.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), and \`web.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports).
+Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, HTTP recipes (url, body vs form, reserved outputs, expose requires proxy, recipe cycles, \`\${http.*}\` / \`\${token}\` refs), health thresholds, duplicate ports, identities, proxy routes (including per-service \`proxy\` fragments and synthesized \`expose\` / \`http.*.expose\` routes merged at load), \`proxy.listen.port\` when \`proxy.enabled\` is true, environment references, profile references, optional \`plugins[].path\`, \`telemetry.otlp.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), \`web.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports), and \`web.dock\` (at most eight iframe or text cards, each a loopback URL or a configured service port, never the web console's own port).
 
 The TUI Config screen \`v\` / \`/buffer\` overlay validates this text before writing. Invalid YAML is not saved. \`e\` still opens \`$EDITOR\`.
 
@@ -4833,7 +4833,42 @@ Open **Settings → Appearance** for the same 28 named palettes as the TUI, incl
 
 ## Control services
 
-The overview combines service status, recent proxy requests, and errors. Start a profile to bring up a group, or use a service's start, stop, and restart controls. The service fleet searches names, descriptions, ports, states, and environment names. Narrow it by profile or running/attention/stopped state, then sort by name, state, or attention first. Pagination keeps large workspaces manageable. Select a page or individual services for bulk actions; the selection bar also reports selections outside the current page.
+The overview combines service status, recent proxy requests, and errors. Under the workspace controls, a centered **dock** shows panels declared in \`web.dock\`. Start a profile to bring up a group, or use a service's start, stop, and restart controls.
+
+### Overview dock
+
+\`web.dock\` is a list of up to eight cards. Each card has an \`id\`, a \`title\`, and a \`kind\`.
+
+| Kind | What it shows |
+|------|----------------|
+| \`iframe\` | A loopback page, previewed in the card. **Full screen** opens that page in a dialog. |
+| \`text\` | A title plus the body of a loopback request. JSON is pretty-printed. HTML is shown as text. The console fetches it, so the target does not need CORS. |
+
+Point a card at a literal loopback URL, or at a managed service. A service target uses the port the process is actually listening on, and a fixed declared port when it is not running yet. \`port\` defaults to \`http\`. \`path\` defaults to \`/\`. \`refresh_seconds\` (text only) defaults to 15 and must be from 5 to 3600.
+
+\`\`\`yaml
+web:
+  dock:
+    - id: billing
+      title: Billing console
+      kind: iframe
+      service: billing-console
+      path: /
+    - id: queue
+      title: Invoice queue
+      kind: text
+      service: invoices-api
+      path: /jobs
+      refresh_seconds: 10
+    - id: note
+      title: Local note
+      kind: text
+      url: http://127.0.0.1:18010/briefing
+\`\`\`
+
+The URL has to be \`http\` or \`https\` on \`127.0.0.1\`, \`localhost\`, or \`::1\`. Public hosts, credentials in the URL, redirects, and the web console's own port are refused. An empty \`web.dock\` leaves the overview unchanged.
+
+The service fleet searches names, descriptions, ports, states, and environment names. Narrow it by profile or running/attention/stopped state, then sort by name, state, or attention first. Pagination keeps large workspaces manageable. Select a page or individual services for bulk actions; the selection bar also reports selections outside the current page.
 
 Open a service name to inspect its command, working directory, dependencies, ports, last error, and configured environment values with secrets redacted. The detail view links directly to that service's logs. **Resolve environment** shows the values a new command will receive, including devctl templates. Values are redacted by default; **Reveal secrets** requires review and keeps them only in the open inspector. **Run command** executes an argument list in the service's environment and working directory, with captured stdout, stderr, and exit code. Shell operators are ordinary arguments; invoke a shell explicitly when needed.
 

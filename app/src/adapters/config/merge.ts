@@ -50,6 +50,7 @@ import {
   type TaskConfig,
   type TelemetryConfig,
   type WebConfig,
+  type WebDockItem,
   type LlmConfig,
   type LlmSourceConfig,
   type LlmCaptureFieldMap,
@@ -330,6 +331,25 @@ export function applyWeb(web: WebConfig, raw: Record<string, unknown>): void {
       web.listen.port = asNumber(raw.listen.port);
     }
   }
+  if (Array.isArray(raw.dock)) {
+    web.dock = raw.dock.map(decodeDockItem);
+  }
+}
+
+function decodeDockItem(raw: unknown): WebDockItem {
+  if (!isRecord(raw)) {
+    return { id: "", title: "", kind: "", url: "", service: "", port: "", path: "", refresh_seconds: Number.NaN };
+  }
+  return {
+    id: asString(raw.id).trim(),
+    title: asString(raw.title),
+    kind: asString(raw.kind).trim(),
+    url: asString(raw.url).trim(),
+    service: asString(raw.service).trim(),
+    port: asString(raw.port).trim(),
+    path: asString(raw.path).trim(),
+    refresh_seconds: raw.refresh_seconds === undefined ? 0 : decodeStrictNumber(raw.refresh_seconds),
+  };
 }
 
 export function applyLlm(llm: LlmConfig, raw: Record<string, unknown>): void {

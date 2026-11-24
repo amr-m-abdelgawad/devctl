@@ -842,7 +842,28 @@
             "host": { "type": "string" },
             "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
           }
+        },
+        "dock": {
+          "type": "array",
+          "maxItems": 8,
+          "description": "Panels pinned to the center of the web console overview. Each card is an iframe or text fetched from a loopback address.",
+          "items": { "$ref": "#/$defs/webDockItem" }
         }
+      }
+    },
+    "webDockItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "kind"],
+      "properties": {
+        "id": { "type": "string", "description": "Stable name: a lowercase letter, then letters, digits, _ or -." },
+        "title": { "type": "string", "description": "Card title shown on the overview dock." },
+        "kind": { "type": "string", "enum": ["iframe", "text"], "description": "iframe embeds a loopback page and can open full screen. text shows the body of a loopback request under title." },
+        "url": { "type": "string", "description": "Absolute http(s) URL on a loopback host. Mutually exclusive with service." },
+        "service": { "type": "string", "description": "Managed service whose port is the target. Mutually exclusive with url. The assigned port is used when the service is running; otherwise a fixed declared port." },
+        "port": { "type": "string", "description": "Named service port. Defaults to http." },
+        "path": { "type": "string", "description": "URL path on the service, starting with /. Defaults to /." },
+        "refresh_seconds": { "type": "integer", "minimum": 5, "maximum": 3600, "description": "How often a text card refetches. Omitted uses 15 seconds. Not valid on iframe." }
       }
     },
     "llm": {

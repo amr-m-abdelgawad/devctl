@@ -28,6 +28,7 @@ import type {
   TrafficCallRow,
   TrafficCallsPayload,
   UpdateCheckPayload,
+  DockPayload,
 } from "./types.ts";
 import { controlAuthHeaders, forgetControlToken } from "./session.ts";
 import type { ConfigDocument, WebLoginState } from "../src/ports/web-host.ts";
@@ -53,6 +54,10 @@ async function getJson<T>(path: string): Promise<T> {
 
 export function fetchStatus(): Promise<StatusSummary> {
   return getJson("/api/status");
+}
+
+export function fetchDock(): Promise<DockPayload> {
+  return getJson("/api/dock");
 }
 
 export function fetchServices(): Promise<ServiceRow[]> {
