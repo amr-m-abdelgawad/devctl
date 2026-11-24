@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- The documentation site is published at [devctl on GitHub Pages](https://amr-m-abdelgawad.github.io/devctl/). The repository name is `devctl` again, so styles and scripts load from `/devctl/`. [https://amr-m-abdelgawad.github.io/Devctl/](https://amr-m-abdelgawad.github.io/Devctl/) redirects to that address.
-
 ## [0.28.3] - 2026-11-24
 
 ### Added
@@ -19,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The documentation site loaded from the repository's GitHub Pages path after a rename. Asset links had stayed on the previous path, so the new address opened without its styles or scripts.
+- The documentation site is published at [devctl on GitHub Pages](https://amr-m-abdelgawad.github.io/devctl/). The repository name is `devctl`, so styles and scripts load from `/devctl/`. [https://amr-m-abdelgawad.github.io/Devctl/](https://amr-m-abdelgawad.github.io/Devctl/) redirects to that address.
 - A `transport: grpc` route drops an upstream HTTP/2 connection that stops answering, and the next RPC opens a new one. After a network outage the route kept the dead connection, so every later RPC hung until the client gave up and only a proxy restart cleared it. The route now sends a PING after 30 seconds of silence and, if the acknowledgement does not arrive within 15 seconds, drops the connection and ends RPCs still on it with `grpc-status` 14. A handshake that takes longer than 10 seconds fails the same way. A network error while minting the route token marks the connection suspect so the next RPC checks it before reuse. A long-poll stays open while those PINGs are answered. See [Proxy](docs/proxy.md#grpc-routes-temporal-and-other-h2-clients-behind-iap).
 
 ## [0.28.2] - 2026-11-02
