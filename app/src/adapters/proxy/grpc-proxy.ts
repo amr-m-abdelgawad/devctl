@@ -1,5 +1,5 @@
 import * as http2 from "node:http2";
-import type { Http2Server, ServerHttp2Stream, ServerStreamResponseOptions, ClientHttp2Session, IncomingHttpHeaders, OutgoingHttpHeaders } from "node:http2";
+import type { Http2Server, ServerHttp2Stream, ServerStreamResponseOptions, ClientHttp2Session, ClientHttp2Stream, IncomingHttpHeaders, OutgoingHttpHeaders } from "node:http2";
 import type { RouteConfig } from "../config/index.ts";
 import { listenKey, sameListen } from "../../domain/proxy/listen.ts";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
@@ -19,6 +19,9 @@ import { envWithSecrets } from "../environment/environment.ts";
 import { startRouteTimeout, timeoutMessage, type TimeoutKind } from "./route-timeout.ts";
 import { applyTraceHeaders, beginProxyTrace, proxyRecordToSpan, TRACEPARENT_HEADER } from "./tracing.ts";
 import type { TrafficCaptureRecorder, TrafficCaptureSink } from "../../ports/traffic-capture.ts";
+import { isUpstreamNetworkFailure, UpstreamPool, type UpstreamTiming } from "./grpc-upstream.ts";
+
+const UPSTREAM_OPEN_ATTEMPTS = 2;
 
 // gRPC status codes we synthesize when the request never reaches the upstream,
 // or when the client abandons it.
@@ -38,7 +41,7 @@ const DROP_REQUEST_HEADERS = new Set(["host", "connection", "keep-alive", "trans
 // the HTTP proxy uses, so `credentials` / `audience` / `auth.headers` all apply.
 export class GrpcProxyServer {
   private server?: Http2Server;
-  private readonly clients = new Map<string, ClientHttp2Session>();
+  private readonly upstreams: UpstreamPool;
   private running = false;
   private addr = "";
   private readonly requests = new RequestLog();
@@ -51,7 +54,12 @@ export class GrpcProxyServer {
     private readonly detector?: Detector,
     private readonly spans?: SpanStore,
     private readonly traffic?: TrafficCaptureSink,
-  ) {}
+    timing?: UpstreamTiming,
+  ) {
+    this.upstreams = new UpstreamPool(timing, (message) => {
+      this.log("WARN", `grpc route ${this.route.name} ${message}`);
+    });
+  }
 
   address(): string {
     return this.addr;
@@ -79,8 +87,8 @@ export class GrpcProxyServer {
 
   // Swap auth/upstream/inspect/log on the live h2c listener. In-flight
   // streams already captured their route; new streams read this.route.
-  // An upstream URL change retires the pooled client (GOAWAY) so the next
-  // RPC dials the new target without closing this.server.
+  // An upstream URL change retires the pooled client so the next RPC dials
+  // the new target without closing this.server.
   replaceRoute(route: RouteConfig): void {
     const prevUrl = this.resolvedUpstreamUrl(this.route);
     this.route = route;
@@ -88,9 +96,7 @@ export class GrpcProxyServer {
     if (nextUrl === prevUrl) {
       return;
     }
-    const stale = this.clients.get(prevUrl);
-    this.clients.delete(prevUrl);
-    stale?.close();
+    this.upstreams.discard(prevUrl);
   }
 
   start(): Promise<void> {
@@ -130,10 +136,8 @@ export class GrpcProxyServer {
   stop(): Promise<void> {
     const server = this.server;
     this.server = undefined;
-    for (const session of this.clients.values()) {
-      session.close();
-    }
-    this.clients.clear();
+    this.upstreams.discardAll();
+    closeListenerConnections(server);
     return closeBoundServer(server).then(() => {
       this.running = false;
     });
@@ -143,25 +147,23 @@ export class GrpcProxyServer {
     return requireEnvInterpolation(route.upstream.url, envWithSecrets(process.env), "upstream.url");
   }
 
-  // One pooled HTTP/2 session per upstream URL. Recreated lazily after it
-  // closes or a GOAWAY retires it. Keyed by URL so a mid-stream replaceRoute
-  // cannot send a token-injected request to a different origin.
-  private upstream(url = this.resolvedUpstreamUrl()): ClientHttp2Session {
-    const existing = this.clients.get(url);
-    if (existing && !existing.closed && !existing.destroyed) {
-      return existing;
-    }
-    const session = http2.connect(url);
-    const drop = (): void => {
-      if (this.clients.get(url) === session) {
-        this.clients.delete(url);
+  // Dial once, and once more if that session refuses the stream (it has
+  // already received GOAWAY or been destroyed). A PING or handshake failure
+  // rejects from the pool; the caller turns that into UNAVAILABLE.
+  private async openUpstream(url: string, headers: OutgoingHttpHeaders, aborted: () => boolean): Promise<{ session: ClientHttp2Session; stream: ClientHttp2Stream } | undefined> {
+    let last: unknown;
+    for (let attempt = 0; attempt < UPSTREAM_OPEN_ATTEMPTS; attempt += 1) {
+      const session = await this.upstreams.acquire(url);
+      if (aborted()) return undefined;
+      try {
+        return { session, stream: session.request(headers) };
+      } catch (err) {
+        last = err;
+        this.upstreams.dropSession(session, "upstream session rejected the stream");
+        if (aborted()) return undefined;
       }
-    };
-    session.on("error", drop);
-    session.on("goaway", drop);
-    session.on("close", drop);
-    this.clients.set(url, session);
-    return session;
+    }
+    throw last instanceof Error ? last : new Error("upstream unavailable");
   }
 
   private async serve(front: ServerHttp2Stream, headers: IncomingHttpHeaders): Promise<void> {
@@ -247,15 +249,15 @@ export class GrpcProxyServer {
         }
         finish(200, GRPC_DEADLINE_EXCEEDED, message);
       }
-      try {
-        upReq?.close(http2.constants.NGHTTP2_CANCEL);
-      } catch {
-        upReq?.destroy();
-      }
+      releaseUpstream();
     });
 
     let clientGone = false;
-    const cancelUpstream = (): void => {
+    // Set before the stream is reset. Windows reports that reset as
+    // ECONNRESET; that is this proxy closing one RPC, not a dead connection.
+    let releasedUpstream = false;
+    const releaseUpstream = (): void => {
+      releasedUpstream = true;
       try {
         upReq?.close(http2.constants.NGHTTP2_CANCEL);
       } catch {
@@ -264,7 +266,7 @@ export class GrpcProxyServer {
     };
     const onClientGone = (): void => {
       clientGone = true;
-      cancelUpstream();
+      releaseUpstream();
     };
     // The client can reset its stream between the upstream answering and this
     // relay. respond() then throws inside the upstream's event handler, where
@@ -289,7 +291,7 @@ export class GrpcProxyServer {
       } catch {
         // already torn down
       }
-      cancelUpstream();
+      releaseUpstream();
       return false;
     };
     front.on("close", onClientGone);
@@ -300,6 +302,9 @@ export class GrpcProxyServer {
       applyTraceHeaders(out, ctx, REQUEST_ID_HEADER);
       await injectIdentityHeaders(route, out, this.tokens);
     } catch (err) {
+      // DNS / network loss while minting (getaddrinfo EAI_AGAIN) usually means
+      // the pooled upstream TCP connection is dead too, and Node will not say so.
+      if (isUpstreamNetworkFailure(err)) this.upstreams.markSuspect();
       if (!clientGone) {
         fail(GRPC_UNAUTHENTICATED, err instanceof Error ? err.message : "token injection failed");
       }
@@ -310,17 +315,27 @@ export class GrpcProxyServer {
       return;
     }
 
+    let upSession: ClientHttp2Session | undefined;
     try {
-      if (timeoutKind || recorded) {
+      if (timeoutKind || recorded) return;
+      const opened = await this.openUpstream(this.resolvedUpstreamUrl(route), out as OutgoingHttpHeaders, () => recorded || timeoutKind !== undefined || clientGone || front.closed);
+      if (!opened) {
+        if (!recorded) finish(499, GRPC_CANCELLED, "client closed before completion");
         return;
       }
-      upReq = this.upstream(this.resolvedUpstreamUrl(route)).request(out as OutgoingHttpHeaders);
+      upSession = opened.session;
+      upReq = opened.stream;
     } catch (err) {
+      if (recorded || clientGone || front.closed) {
+        if (!recorded) finish(499, GRPC_CANCELLED, "client closed before completion");
+        return;
+      }
       fail(GRPC_UNAVAILABLE, err instanceof Error ? err.message : "upstream unavailable");
       return;
     }
 
     upReq.on("response", (uh) => {
+      if (upSession) this.upstreams.noteActivity(upSession);
       if (responded) return;
       responded = true;
       // Trailers-only response (grpc-status already in the headers) — usually an
@@ -344,7 +359,10 @@ export class GrpcProxyServer {
         }
         finish(Number(uh[":status"] ?? 200), String(upTrailers["grpc-status"] ?? "0"));
       });
-      this.pipeWithCapture(upReq, front, recorder, "response", timeouts.touch);
+      this.pipeWithCapture(upReq, front, recorder, "response", () => {
+        timeouts.touch();
+        if (upSession) this.upstreams.noteActivity(upSession);
+      });
       upReq.on("end", () => {
         try {
           front.end();
@@ -357,6 +375,7 @@ export class GrpcProxyServer {
       upTrailers = t;
     });
     upReq.on("error", (err) => {
+      if (!releasedUpstream && upSession && isUpstreamNetworkFailure(err)) this.upstreams.dropSession(upSession, "upstream connection error");
       if (recorded) {
         return;
       }
@@ -367,7 +386,7 @@ export class GrpcProxyServer {
         front.close(http2.constants.NGHTTP2_INTERNAL_ERROR);
       }
     });
-    front.on("error", () => upReq.destroy());
+    front.on("error", () => releaseUpstream());
     // A client cancel (RST_STREAM) or disconnect surfaces as 'close', not
     // always 'error'. If the RPC never completed, record it as cancelled and
     // tear down the upstream stream so it cannot leak on the pooled session —
@@ -375,7 +394,7 @@ export class GrpcProxyServer {
     front.on("close", () => {
       if (!recorded) {
         finish(499, GRPC_CANCELLED, "client closed before completion");
-        upReq.destroy();
+        releaseUpstream();
       }
     });
     this.pipeWithCapture(front, upReq, recorder, "request", timeouts.touch);
@@ -564,6 +583,15 @@ function grpcCapturePeer(stream: ServerHttp2Stream): { address: string; port: nu
     return undefined;
   }
   return { address: socket?.remoteAddress ?? "", port, proxyPort: socket?.localPort, proxyAddress: socket?.localAddress };
+}
+
+function closeListenerConnections(server: Http2Server | undefined): void {
+  const closer = server as (Http2Server & { closeAllConnections?: () => void }) | undefined;
+  try {
+    closer?.closeAllConnections?.();
+  } catch {
+    // Older runtimes only finish close() once the client sessions end on their own.
+  }
 }
 
 function headerString(headers: IncomingHttpHeaders, name: string): string | undefined {

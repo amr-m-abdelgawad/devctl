@@ -323,6 +323,8 @@ Notes:
 - Injection only happens on an `iap` / `service_account` route; a `none` grpc route is a plain forwarder.
 - This targets a **self-hosted Temporal behind a GCP IAP HTTPS load balancer**. Temporal Cloud (mTLS + API key) is not covered by this route type.
 
+The route keeps one HTTP/2 connection to the upstream and reuses it. A sleep or a dropped network can leave that socket established after it has stopped delivering, and a later RPC would wait on it until the client gave up. The route sends a PING after 30 seconds of silence and drops the connection if the acknowledgement does not arrive within 15 seconds. An RPC still on that connection ends with `grpc-status` 14 (`UNAVAILABLE`), which gRPC clients retry, and the next RPC opens a new connection. A handshake that does not finish within 10 seconds fails the same way. A network error while minting the token (for example `getaddrinfo EAI_AGAIN`) marks the pooled connection suspect, so the next RPC checks it with a PING before using it. A long-poll stays open while those PINGs are answered. If the peer closes the connection with `GOAWAY` / `too_many_pings`, the PING interval doubles up to 5 minutes so a server that rejects frequent PINGs is not stuck reconnecting.
+
 ### gRPC status policy
 
 A non-zero `grpc-status` is a proxy error by default (WARN log and `stats().errors`). Temporal long-poll (`14`) and `RespondWorkflowTaskCompleted` (`3`) are expected on a healthy worker and should not count. List them on `log.grpc.ok`:
