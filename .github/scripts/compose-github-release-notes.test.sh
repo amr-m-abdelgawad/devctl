@@ -61,8 +61,8 @@ assert_contains "inside the repository root"
 assert_contains "## Upgrading"
 assert_contains "so the attached daemon is 1.2.3"
 assert_contains "Trust notice:"
-# GITHUB_REPOSITORY is the canonical name, Devctl after the rename. Links work
-# with either casing; the notes must follow whichever name the build has.
+# GITHUB_REPOSITORY is the canonical name. Links follow whichever casing the
+# build has; the repository name is devctl.
 repo="${GITHUB_REPOSITORY:-amr-m-abdelgawad/devctl}"
 assert_contains "https://github.com/${repo}/compare/v1.2.2...v1.2.3"
 assert_contains "https://github.com/${repo}/blob/v1.2.3/docs/plugins.md"
