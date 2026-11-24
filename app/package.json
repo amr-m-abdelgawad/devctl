@@ -65,7 +65,7 @@
     "@opentui/react": "^0.8.1",
     "commander": "^15.0.0",
     "dotenv": "^18.0.9",
-    "google-auth-library": "^11.3.2",
+    "google-auth-library": "^11.3.3",
     "react": "^19.3.1",
     "yaml": "^2.9.1"
   }
